@@ -58,6 +58,7 @@ export type Profile = {
     is_active: boolean;
   }[];
   uploaded_images: ImageAsset[];
+  created_locations: ProfileLocation[];
 };
 
 export type Location = {
@@ -80,6 +81,8 @@ export type Location = {
   creator_handle: string;
   creator_name: string;
 };
+
+export type ProfileLocation = Location;
 
 export type ChallengeSubmission = {
   id: number;

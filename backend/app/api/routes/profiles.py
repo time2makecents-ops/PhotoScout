@@ -5,10 +5,17 @@ from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.models import ImageAsset, Profile, User
 from app.schemas.domain import ProfileRead, ProfileUpdateRequest
-from app.services.auth import get_current_user
+from app.services.auth import get_current_user, get_optional_user
 from app.services.serializers import profile_to_read
 
 router = APIRouter()
+
+
+def profile_query():
+    return select(Profile).options(
+        joinedload(Profile.scout_services),
+        joinedload(Profile.user).joinedload(User.images).joinedload(ImageAsset.image_metadata),
+    )
 
 
 @router.get("", response_model=list[ProfileRead])
@@ -16,29 +23,34 @@ def list_profiles(
     scout_for_hire: bool | None = None,
     db: Session = Depends(get_db),
 ) -> list[ProfileRead]:
-    query = select(Profile).options(
-        joinedload(Profile.scout_services),
-        joinedload(Profile.user).joinedload(User.images).joinedload(ImageAsset.image_metadata),
-    )
+    query = profile_query()
     if scout_for_hire is not None:
         query = query.where(Profile.scout_for_hire == scout_for_hire)
     profiles = db.scalars(query.order_by(Profile.display_name)).unique().all()
     return [profile_to_read(profile) for profile in profiles]
 
 
-@router.get("/{handle}", response_model=ProfileRead)
-def get_profile(handle: str, db: Session = Depends(get_db)) -> ProfileRead:
-    profile = db.scalar(
-        select(Profile)
-        .options(
-            joinedload(Profile.scout_services),
-            joinedload(Profile.user).joinedload(User.images).joinedload(ImageAsset.image_metadata),
-        )
-        .where(Profile.handle == handle)
-    )
+@router.get("/me", response_model=ProfileRead)
+def get_my_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProfileRead:
+    profile = db.scalar(profile_query().where(Profile.user_id == current_user.id))
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    return profile_to_read(profile)
+    return profile_to_read(profile, current_user)
+
+
+@router.get("/{handle}", response_model=ProfileRead)
+def get_profile(
+    handle: str,
+    current_user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+) -> ProfileRead:
+    profile = db.scalar(profile_query().where(Profile.handle == handle))
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return profile_to_read(profile, current_user)
 
 
 @router.patch("/me", response_model=ProfileRead)
@@ -47,14 +59,7 @@ def update_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ProfileRead:
-    profile = db.scalar(
-        select(Profile)
-        .options(
-            joinedload(Profile.scout_services),
-            joinedload(Profile.user).joinedload(User.images).joinedload(ImageAsset.image_metadata),
-        )
-        .where(Profile.user_id == current_user.id)
-    )
+    profile = db.scalar(profile_query().where(Profile.user_id == current_user.id))
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
@@ -64,4 +69,4 @@ def update_profile(
     db.add(profile)
     db.commit()
     db.refresh(profile)
-    return profile_to_read(profile)
+    return profile_to_read(profile, current_user)

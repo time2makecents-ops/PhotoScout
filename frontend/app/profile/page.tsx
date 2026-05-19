@@ -87,6 +87,7 @@ function ProfileContent() {
   const [isOwnProfile, setIsOwnProfile] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const createdLocations = profile?.created_locations ?? [];
 
   async function loadCurrentProfile(token: string) {
     setLoadingProfile(true);
@@ -115,7 +116,7 @@ function ProfileContent() {
     function syncToken() {
       const token = getStoredToken();
       setHasToken(Boolean(token));
-      if (token) {
+      if (token && !params.get("handle")) {
         void loadCurrentProfile(token);
       } else {
         setProfile(null);
@@ -291,6 +292,33 @@ function ProfileContent() {
                 ))}
               </div>
             ) : null}
+            <div className="section">
+              <h3>Created locations</h3>
+              {createdLocations.length ? (
+                <div className="cards-3">
+                  {createdLocations.map((location) => (
+                    <Link key={location.id} href={`/locations/${location.slug}`} className="card">
+                      {location.images[0] ? (
+                        <img className="cover" src={assetUrl(location.images[0].source_url)} alt={location.images[0].title} />
+                      ) : null}
+                      <h3>{location.name}</h3>
+                      <p>{location.street_address || location.description}</p>
+                      <div className="pill-row">
+                        <span className="pill">{location.visibility}</span>
+                        {location.zip_code ? <span className="pill">{location.zip_code}</span> : null}
+                        {location.tags.slice(0, 2).map((tag) => (
+                          <span key={tag.id} className="pill">
+                            {tag.name}
+                          </span>
+                        ))}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="subtle">No created locations yet.</p>
+              )}
+            </div>
             <div className="section">
               <h3>Uploaded images</h3>
               {profile.uploaded_images.length ? (

@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.utils import slugify
 from app.db.session import get_db
 from app.models import ImageAsset, Location, LocationVisibility, Tag, TagKind, User
-from app.schemas.domain import LocationCreateRequest, LocationRead
+from app.schemas.domain import LocationCreateRequest, LocationRead, LocationUpdateRequest
 from app.services.auth import get_current_user, get_optional_user
 from app.services.serializers import location_to_read
 
@@ -22,6 +22,10 @@ def can_view_exact_location(location: Location, current_user: User | None) -> bo
         return True
     if not current_user:
         return False
+    return current_user.id == location.creator_id or current_user.role == "admin"
+
+
+def can_edit_location(location: Location, current_user: User) -> bool:
     return current_user.id == location.creator_id or current_user.role == "admin"
 
 
@@ -194,6 +198,97 @@ def create_location(
     for image in images:
         image.location_id = location.id
     write_location_bundle(location, images)
+    db.commit()
+
+    hydrated = db.scalar(
+        select(Location)
+        .options(
+            joinedload(Location.tags),
+            joinedload(Location.images).joinedload(ImageAsset.image_metadata),
+            joinedload(Location.creator).joinedload(User.profile),
+        )
+        .where(Location.id == location.id)
+    )
+    return location_to_read(hydrated, True)
+
+
+@router.patch("/{slug}", response_model=LocationRead)
+def update_location(
+    slug: str,
+    payload: LocationUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationRead:
+    location = db.scalar(
+        select(Location)
+        .options(
+            joinedload(Location.tags),
+            joinedload(Location.images).joinedload(ImageAsset.image_metadata),
+            joinedload(Location.creator).joinedload(User.profile),
+        )
+        .where(Location.slug == slug)
+    )
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+    if not can_edit_location(location, current_user):
+        raise HTTPException(status_code=403, detail="You do not have permission to edit this location")
+
+    payload_data = payload.model_dump(exclude_unset=True)
+
+    if "name" in payload_data and payload_data["name"] is not None:
+        location.name = payload_data["name"]
+    if "description" in payload_data and payload_data["description"] is not None:
+        location.description = payload_data["description"]
+    if "street_address" in payload_data:
+        location.street_address = payload_data["street_address"] or ""
+    if "latitude" in payload_data and payload_data["latitude"] is not None:
+        location.latitude = payload_data["latitude"]
+    if "longitude" in payload_data and payload_data["longitude"] is not None:
+        location.longitude = payload_data["longitude"]
+    if "visibility" in payload_data:
+        if payload_data["visibility"] not in {LocationVisibility.public.value, LocationVisibility.private.value}:
+            raise HTTPException(status_code=400, detail="Visibility must be public or private")
+        location.visibility = payload_data["visibility"]
+    if "city" in payload_data:
+        location.city = payload_data["city"] or ""
+    if "region" in payload_data:
+        location.region = payload_data["region"] or ""
+    if "country" in payload_data:
+        location.country = payload_data["country"] or ""
+    if "zip_code" in payload_data:
+        location.zip_code = payload_data["zip_code"] or ""
+    if "approximate_latitude" in payload_data:
+        location.approximate_latitude = payload_data["approximate_latitude"]
+    if "approximate_longitude" in payload_data:
+        location.approximate_longitude = payload_data["approximate_longitude"]
+
+    if location.visibility == LocationVisibility.private.value:
+        location.approximate_latitude = (
+            location.approximate_latitude if location.approximate_latitude is not None else location.latitude
+        )
+        location.approximate_longitude = (
+            location.approximate_longitude if location.approximate_longitude is not None else location.longitude
+        )
+    else:
+        location.approximate_latitude = location.latitude
+        location.approximate_longitude = location.longitude
+
+    if payload_data.get("tags") is not None:
+        if not payload.tags:
+            raise HTTPException(status_code=400, detail="At least one tag is required")
+        tags: list[Tag] = []
+        for name in payload.tags:
+            normalized = slugify(name)
+            tag_record = db.scalar(select(Tag).where(Tag.slug == normalized))
+            if not tag_record:
+                tag_record = Tag(name=name.strip().title(), slug=normalized, kind=TagKind.category.value)
+                db.add(tag_record)
+            tags.append(tag_record)
+        location.tags = tags
+
+    db.add(location)
+    db.flush()
+    write_location_bundle(location, list(location.images))
     db.commit()
 
     hydrated = db.scalar(

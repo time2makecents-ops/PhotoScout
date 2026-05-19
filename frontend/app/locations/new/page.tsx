@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { LocationPickerMapClient } from "@/components/location-picker-map-client";
@@ -60,10 +60,35 @@ export default function NewLocationPage() {
   const [uploading, setUploading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const autoLocatedRef = useRef(false);
 
   useEffect(() => {
     setHasToken(Boolean(getStoredToken()));
   }, []);
+
+  useEffect(() => {
+    if (autoLocatedRef.current || latitude || longitude || !navigator.geolocation) {
+      return;
+    }
+    autoLocatedRef.current = true;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const nextLatitude = position.coords.latitude.toFixed(6);
+        const nextLongitude = position.coords.longitude.toFixed(6);
+        updateCoordinates(nextLatitude, nextLongitude);
+        void reverseGeocode(nextLatitude, nextLongitude);
+        setStatus("Current location prefilled for the pin.");
+      },
+      () => {
+        setStatus("Allow GPS or use the button to prefill the map.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  }, [latitude, longitude]);
 
   function setFormValue(form: HTMLFormElement, name: string, value: string | null | undefined) {
     if (value == null || value === "") {

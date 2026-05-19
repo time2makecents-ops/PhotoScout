@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { EmptyState } from "@/components/shell";
+import { LocationEditLink } from "@/components/location-edit-link";
 import { PrivateLocationContact } from "@/components/private-location-contact";
 import { assetUrl, getLocation } from "@/lib/api";
 
@@ -33,6 +34,9 @@ export default async function LocationDetailPage({ params }: { params: Promise<{
             <p className="subtle" style={{ marginTop: "1rem" }}>
               Coordinates shown: {location.latitude ?? "Hidden"}, {location.longitude ?? "Hidden"}
             </p>
+            <div style={{ marginTop: "1rem" }}>
+              <LocationEditLink slug={location.slug} creatorHandle={location.creator_handle} />
+            </div>
           </div>
           {location.visibility === "private" ? (
             <PrivateLocationContact locationId={location.id} ownerName={location.creator_name} />

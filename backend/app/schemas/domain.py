@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,8 +33,9 @@ class ProfileRead(BaseModel):
     licensing_available: bool
     scout_for_hire: bool
     hourly_rate_note: str | None = None
-    scout_services: list[ScoutServiceRead] = []
-    uploaded_images: list[ImageRead] = []
+    scout_services: list[ScoutServiceRead] = Field(default_factory=list)
+    uploaded_images: list[ImageRead] = Field(default_factory=list)
+    created_locations: list["ProfileLocationRead"] = Field(default_factory=list)
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -64,6 +67,22 @@ class LocationCreateRequest(BaseModel):
     uploaded_image_ids: list[int] = Field(min_length=1)
 
 
+class LocationUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    description: str | None = Field(default=None, min_length=10)
+    street_address: str | None = Field(default=None, max_length=255)
+    latitude: float | None = None
+    longitude: float | None = None
+    visibility: str | None = None
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    zip_code: str | None = None
+    approximate_latitude: float | None = None
+    approximate_longitude: float | None = None
+    tags: list[str] | None = None
+
+
 class LocationRead(BaseModel):
     id: int
     name: str
@@ -83,6 +102,10 @@ class LocationRead(BaseModel):
     images: list[ImageRead]
     creator_handle: str
     creator_name: str
+
+
+class ProfileLocationRead(LocationRead):
+    pass
 
 
 class ChallengeRead(BaseModel):
@@ -148,3 +171,6 @@ class SearchResultItem(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: list[SearchResultItem]
+
+
+ProfileRead.model_rebuild()

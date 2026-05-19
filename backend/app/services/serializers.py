@@ -1,11 +1,28 @@
-from app.models import Challenge, ChallengeSubmission, ImageAsset, Location, Profile
+from app.models import Challenge, ChallengeSubmission, ImageAsset, Location, Profile, User
 from app.schemas.common import ImageRead
-from app.schemas.domain import ChallengeDetailRead, ChallengeRead, ChallengeSubmissionRead, LocationRead, ProfileRead
+from app.schemas.domain import ChallengeDetailRead, ChallengeRead, ChallengeSubmissionRead, LocationRead, ProfileRead, ProfileLocationRead
 
 
-def profile_to_read(profile: Profile) -> ProfileRead:
+def profile_to_read(profile: Profile, viewer: User | None = None) -> ProfileRead:
     uploaded_images = [image_to_read(image) for image in profile.user.images] if profile.user and profile.user.images else []
-    return ProfileRead.model_validate(profile).model_copy(update={"uploaded_images": uploaded_images})
+    created_locations: list[ProfileLocationRead] = []
+    if profile.user and profile.user.locations:
+        created_locations = [
+            location_to_read(
+                location,
+                include_exact_coordinates=bool(
+                    location.visibility == "public"
+                    or (
+                        viewer
+                        and (viewer.id == location.creator_id or viewer.role == "admin")
+                    )
+                ),
+            )
+            for location in sorted(profile.user.locations, key=lambda location: (location.created_at, location.id), reverse=True)
+        ]
+    return ProfileRead.model_validate(profile).model_copy(
+        update={"uploaded_images": uploaded_images, "created_locations": created_locations or []}
+    )
 
 
 def image_to_read(image: ImageAsset) -> ImageRead:

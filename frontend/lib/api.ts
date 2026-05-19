@@ -41,12 +41,42 @@ export async function getLocation(slug: string): Promise<Location> {
   return request<Location>(`/api/locations/${slug}`);
 }
 
+export async function updateLocation(
+  slug: string,
+  payload: {
+    name?: string;
+    description?: string;
+    street_address?: string;
+    latitude?: number;
+    longitude?: number;
+    visibility?: string;
+    city?: string;
+    region?: string;
+    country?: string;
+    zip_code?: string;
+    approximate_latitude?: number | null;
+    approximate_longitude?: number | null;
+    tags?: string[];
+  },
+  token: string
+): Promise<Location> {
+  return request<Location>(`/api/locations/${slug}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function getProfiles(): Promise<Profile[]> {
   return request<Profile[]>("/api/profiles");
 }
 
 export async function getProfile(handle: string): Promise<Profile> {
   return request<Profile>(`/api/profiles/${handle}`);
+}
+
+export async function getMyProfile(token: string): Promise<Profile> {
+  return request<Profile>("/api/profiles/me", { headers: { Authorization: `Bearer ${token}` } });
 }
 
 export async function getChallenges(): Promise<Challenge[]> {

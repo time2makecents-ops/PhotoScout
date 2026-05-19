@@ -217,6 +217,16 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertTrue(token)
         self.assertTrue(login_token)
 
+    def test_profile_lookup_by_handle_still_works(self) -> None:
+        email = f"handle-{uuid.uuid4().hex[:6]}@example.com"
+        token, registered = self.register_user(email, unique_slug("handle"), "Handle Test")
+
+        status, profile = json_request("GET", f"/api/profiles/{registered['handle']}")
+        self.assertEqual(status, 200, profile)
+        self.assertEqual(profile["handle"], registered["handle"])
+        self.assertEqual(profile["display_name"], "Handle Test")
+        self.assertEqual(profile["created_locations"], [])
+
     def test_register_creates_profile_details(self) -> None:
         email = f"profile-{uuid.uuid4().hex[:6]}@example.com"
         status, body = json_request(
@@ -300,6 +310,39 @@ class PhotoScoutAPITests(unittest.TestCase):
             f"{location['slug']}/{Path(image['source_url']).name}",
         )
 
+    def test_profile_includes_created_locations(self) -> None:
+        email = f"profile-locations-{uuid.uuid4().hex[:6]}@example.com"
+        token, registered = self.register_user(email, unique_slug("creator"), "Creator Test")
+        image = self.upload_image(token, "Location thumbnail", featured=True)
+
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            {
+                "name": "Created Location",
+                "street_address": "42 Created St, Los Angeles, CA 90012",
+                "latitude": 34.052235,
+                "longitude": -118.243683,
+                "visibility": "public",
+                "description": "A created location for profile testing.",
+                "city": "Los Angeles",
+                "region": "CA",
+                "country": "USA",
+                "zip_code": "90012",
+                "tags": ["test"],
+                "uploaded_image_ids": [image["id"]],
+            },
+            token=token,
+        )
+        self.assertEqual(status, 201, location)
+
+        status, profile = json_request("GET", f"/api/profiles/{registered['handle']}")
+        self.assertEqual(status, 200, profile)
+        self.assertEqual(len(profile["created_locations"]), 1)
+        self.assertEqual(profile["created_locations"][0]["slug"], location["slug"])
+        self.assertTrue(profile["created_locations"][0]["images"][0]["featured"])
+        self.assertEqual(profile["created_locations"][0]["images"][0]["title"], "Location thumbnail")
+
     def test_location_creation_without_street_address(self) -> None:
         email = f"hike-{uuid.uuid4().hex[:6]}@example.com"
         token, _ = self.register_user(email, unique_slug("hike"), "Hike Tester")
@@ -326,6 +369,59 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 201, location)
         self.assertEqual(location["street_address"], "")
         self.assertEqual(location["name"], "Trail Pin")
+
+    def test_update_location(self) -> None:
+        email = f"edit-{uuid.uuid4().hex[:6]}@example.com"
+        token, registered = self.register_user(email, unique_slug("edit"), "Edit Tester")
+        image = self.upload_image(token, "Editable location image")
+
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            {
+                "name": "Editable Pin",
+                "latitude": 34.052235,
+                "longitude": -118.243683,
+                "visibility": "public",
+                "description": "Original description for the editable pin.",
+                "city": "Los Angeles",
+                "region": "CA",
+                "country": "USA",
+                "zip_code": "90012",
+                "tags": ["edit"],
+                "uploaded_image_ids": [image["id"]],
+            },
+            token=token,
+        )
+        self.assertEqual(status, 201, location)
+
+        status, updated = json_request(
+            "PATCH",
+            f"/api/locations/{location['slug']}",
+            {
+                "name": "Updated Pin",
+                "description": "Updated description for the editable pin.",
+                "street_address": "99 Updated Ave, Los Angeles, CA 90012",
+                "visibility": "private",
+                "city": "Los Angeles",
+                "region": "CA",
+                "country": "USA",
+                "zip_code": "90012",
+                "approximate_latitude": 34.05,
+                "approximate_longitude": -118.24,
+                "tags": ["updated", "edit"],
+            },
+            token=token,
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["name"], "Updated Pin")
+        self.assertEqual(updated["street_address"], "99 Updated Ave, Los Angeles, CA 90012")
+        self.assertEqual(updated["visibility"], "private")
+        self.assertEqual(updated["zip_code"], "90012")
+
+        status, profile = json_request("GET", f"/api/profiles/{registered['handle']}")
+        self.assertEqual(status, 200, profile)
+        self.assertEqual(profile["created_locations"][0]["name"], "Updated Pin")
 
     def test_challenge_vote_toggle(self) -> None:
         submitter_email = f"sam-{uuid.uuid4().hex[:6]}@example.com"
