@@ -37,6 +37,20 @@ function avatarDisplayUrl(profile: Profile | null, previewUrl: string | null) {
   return `${base}${separator}v=${encodeURIComponent(profile.updated_at)}`;
 }
 
+function splitBaseLocation(value: string) {
+  const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return {
+      city: parts.slice(0, -1).join(", "),
+      state: parts[parts.length - 1]
+    };
+  }
+  return {
+    city: value.trim(),
+    state: ""
+  };
+}
+
 function LoginPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -404,6 +418,9 @@ function ProfileContent() {
     }
     const form = new FormData(event.currentTarget);
     const fieldValue = (name: string) => String(form.get(name) ?? "");
+    const baseLocationCity = fieldValue("base_city_part");
+    const baseLocationState = fieldValue("base_state_part");
+    const baseLocation = [baseLocationCity.trim(), baseLocationState.trim()].filter(Boolean).join(", ");
     const nextEmail = fieldValue("email");
     const emailChanged = nextEmail.trim().toLowerCase() !== currentEmail.trim().toLowerCase();
     try {
@@ -412,7 +429,7 @@ function ProfileContent() {
         email: nextEmail,
         display_name: fieldValue("display_name"),
         bio: fieldValue("bio"),
-        base_city: fieldValue("base_city"),
+        base_city: baseLocation,
         specialties: fieldValue("specialties"),
         website_url: fieldValue("website_url"),
         instagram_url: fieldValue("instagram_url"),
@@ -458,6 +475,10 @@ function ProfileContent() {
           </>
         ) : (
           <>
+            {(() => {
+              const baseLocationParts = splitBaseLocation(profile.base_city || "");
+              return (
+                <>
             <div className="profile-hero-card">
               <div className="profile-hero-avatar-wrap">
                 {heroAvatarUrl ? (
@@ -486,7 +507,7 @@ function ProfileContent() {
                 <p>{profile.bio || "No bio added yet."}</p>
                 <div className="pill-row">
                   <span className="pill">@{profile.handle}</span>
-                  <span className="pill">{profile.base_city || "Location not set"}</span>
+                  <span className="pill">{profile.base_city || "Base location not set"}</span>
                   {profile.licensing_available ? <span className="pill">Licensing available</span> : null}
                   {profile.scout_for_hire ? <span className="pill">Scout for hire</span> : null}
                 </div>
@@ -564,8 +585,17 @@ function ProfileContent() {
                   <textarea id="bio" name="bio" defaultValue={profile.bio} />
                 </div>
                 <div className="field">
-                  <label htmlFor="base_city">Base city</label>
-                  <input id="base_city" name="base_city" defaultValue={profile.base_city} />
+                  <label>Base location</label>
+                  <div className="panel-grid">
+                    <div className="field">
+                      <label htmlFor="base_city_part">City</label>
+                      <input id="base_city_part" name="base_city_part" defaultValue={baseLocationParts.city} placeholder="Eugene" />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="base_state_part">State</label>
+                      <input id="base_state_part" name="base_state_part" defaultValue={baseLocationParts.state} placeholder="OR" />
+                    </div>
+                  </div>
                 </div>
                 <div className="field">
                   <label htmlFor="specialties">Specialties</label>
@@ -653,6 +683,9 @@ function ProfileContent() {
                 <p className="subtle">No uploaded images yet.</p>
               )}
             </div>
+                </>
+              );
+            })()}
           </>
         )}
       </div>

@@ -81,8 +81,8 @@ export default function SignupPage() {
             <textarea id="bio" name="bio" placeholder="Short intro for your profile" />
           </div>
           <div className="field">
-            <label htmlFor="base_city">Base city</label>
-            <input id="base_city" name="base_city" placeholder="Los Angeles" />
+            <label htmlFor="base_city">Base location</label>
+            <input id="base_city" name="base_city" placeholder="Los Angeles, CA" />
           </div>
           <div className="field">
             <label htmlFor="specialties">Specialties</label>

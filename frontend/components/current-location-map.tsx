@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import type { DivIcon, Map as LeafletMap } from "leaflet";
 import { divIcon, latLngBounds } from "leaflet";
 
@@ -39,6 +39,73 @@ function PinThumbnail({ location }: { location: Location }) {
     <div className="map-thumbnail">
       <img src={assetUrl(image.source_url)} alt={image.title} />
       <strong>{image.title}</strong>
+    </div>
+  );
+}
+
+function SelectedPinCard({
+  location,
+  imageIndex,
+  onPreviousImage,
+  onNextImage,
+  onClose
+}: {
+  location: Location;
+  imageIndex: number;
+  onPreviousImage: () => void;
+  onNextImage: () => void;
+  onClose: () => void;
+}) {
+  const image = location.images[imageIndex] ?? location.images[0] ?? null;
+
+  return (
+    <div className="map-selected-card">
+      <div className="map-selected-header">
+        <div>
+          <span className="eyebrow">Selected pin</span>
+          <h3>{location.name}</h3>
+        </div>
+        <button type="button" className="secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {image ? (
+        <div className="map-thumbnail map-thumbnail-carousel">
+          <img src={assetUrl(image.source_url)} alt={image.title} />
+          {location.images.length > 1 ? (
+            <>
+              <button type="button" className="map-image-arrow map-image-arrow-left" onClick={onPreviousImage} aria-label="Previous image">
+                ‹
+              </button>
+              <button type="button" className="map-image-arrow map-image-arrow-right" onClick={onNextImage} aria-label="Next image">
+                ›
+              </button>
+            </>
+          ) : null}
+          <strong>{image.title}</strong>
+          {location.images.length > 1 ? (
+            <span className="subtle">
+              {imageIndex + 1} of {location.images.length}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {location.street_address ? <p>{location.street_address}</p> : null}
+      <p className="subtle">
+        {[location.city, location.region].filter(Boolean).join(", ")}
+        {location.zip_code ? ` ${location.zip_code}` : ""}
+      </p>
+      <div className="pill-row">
+        <span className="pill">{location.visibility}</span>
+        {location.tags.slice(0, 3).map((tag) => (
+          <span key={tag.id} className="pill">
+            {tag.name}
+          </span>
+        ))}
+      </div>
+      <Link href={`/locations/${location.slug}`} className="button" style={{ display: "inline-flex", marginTop: "0.9rem" }}>
+        View pin details
+      </Link>
     </div>
   );
 }
@@ -122,6 +189,8 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
   const [recenterToken, setRecenterToken] = useState(0);
   const [showAllToken, setShowAllToken] = useState(0);
   const [mapMessage, setMapMessage] = useState<string | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const userInteractedRef = useRef(false);
   const requestedLocationRef = useRef(false);
 
@@ -203,6 +272,14 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
       locations.filter((location) => typeof location.latitude === "number" && typeof location.longitude === "number"),
     [locations]
   );
+  const selectedLocation = useMemo(
+    () => pins.find((location) => location.id === selectedLocationId) ?? null,
+    [pins, selectedLocationId]
+  );
+
+  useEffect(() => {
+    setSelectedImageIndex(0);
+  }, [selectedLocationId]);
 
   async function recenterToMyLocation() {
     if (!navigator.geolocation) {
@@ -305,27 +382,33 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
                 location.name
               )}
               zIndexOffset={currentHandle && location.creator_handle === currentHandle ? 2000 : 1000}
-            >
-              <Popup>
-                <PinThumbnail location={location} />
-                <strong>{location.name}</strong>
-                {location.street_address ? <div>{location.street_address}</div> : null}
-                <div>
-                  {location.city}, {location.region}
-                </div>
-                <div>{location.zip_code || "No ZIP"}</div>
-                <Link
-                  href={`/locations/${location.slug}`}
-                  className="button"
-                  style={{ display: "inline-flex", marginTop: "0.75rem" }}
-                >
-                  View pin details
-                </Link>
-              </Popup>
-            </Marker>
+              eventHandlers={{
+                click: () => {
+                  setSelectedLocationId(location.id);
+                  setSelectedImageIndex(0);
+                }
+              }}
+            />
           ))}
         </MapContainer>
       </div>
+      {selectedLocation ? (
+        <SelectedPinCard
+          location={selectedLocation}
+          imageIndex={selectedImageIndex}
+          onPreviousImage={() =>
+            setSelectedImageIndex((current) =>
+              selectedLocation.images.length ? (current - 1 + selectedLocation.images.length) % selectedLocation.images.length : 0
+            )
+          }
+          onNextImage={() =>
+            setSelectedImageIndex((current) =>
+              selectedLocation.images.length ? (current + 1) % selectedLocation.images.length : 0
+            )
+          }
+          onClose={() => setSelectedLocationId(null)}
+        />
+      ) : null}
       <p className="subtle">Drag the map, use zoom controls, or scroll to see a wider area.</p>
     </div>
   );

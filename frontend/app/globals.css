@@ -288,7 +288,7 @@ button.secondary {
 .profile-hero-card {
   display: grid;
   gap: 1rem;
-  align-items: start;
+  align-items: flex-start;
 }
 
 .profile-hero-avatar-wrap {
@@ -512,6 +512,63 @@ button.secondary {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
+}
+
+.map-selected-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 1.2rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.map-selected-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.map-thumbnail {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+}
+
+.map-thumbnail-carousel {
+  position: relative;
+}
+
+.map-thumbnail img {
+  width: 100%;
+  max-height: 12rem;
+  object-fit: cover;
+  border-radius: 0.9rem;
+}
+
+.map-image-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(31, 27, 23, 0.68);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.map-image-arrow-left {
+  left: 0.55rem;
+}
+
+.map-image-arrow-right {
+  right: 0.55rem;
 }
 
 .form {
