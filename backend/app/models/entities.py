@@ -32,6 +32,13 @@ class TagKind(str, Enum):
     challenge = "challenge"
 
 
+class ImageRole(str, Enum):
+    general = "general"
+    area_image = "area_image"
+    location_photo = "location_photo"
+    challenge_submission = "challenge_submission"
+
+
 class InquiryStatus(str, Enum):
     open = "open"
     reviewed = "reviewed"
@@ -142,6 +149,7 @@ class ImageAsset(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     uploader_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True, index=True)
+    image_role: Mapped[str] = mapped_column(String(40), default=ImageRole.general.value)
     title: Mapped[str] = mapped_column(String(160))
     caption: Mapped[str] = mapped_column(Text, default="")
     storage_key: Mapped[str] = mapped_column(String(255))
@@ -165,6 +173,14 @@ class ImageMetadata(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     image_id: Mapped[int] = mapped_column(ForeignKey("image_assets.id"), unique=True)
+    gps_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gps_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    captured_at_device: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    camera_heading_degrees: Mapped[float | None] = mapped_column(Float, nullable=True)
+    camera_heading_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    camera_pitch_degrees: Mapped[float | None] = mapped_column(Float, nullable=True)
+    camera_roll_degrees: Mapped[float | None] = mapped_column(Float, nullable=True)
+    heading_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     camera_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     lens_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     focal_length: Mapped[str | None] = mapped_column(String(50), nullable=True)

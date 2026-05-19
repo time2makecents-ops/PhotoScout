@@ -42,6 +42,7 @@ export default function ChallengeDetailPage({ params }: { params: Promise<{ slug
     setWorking(true);
     setStatus("Uploading image for challenge submission...");
     const form = new FormData(event.currentTarget);
+    form.set("image_role", "challenge_submission");
     const uploadResponse = await fetch(`${apiBase}/api/uploads/images`, {
       method: "POST",
       headers: {

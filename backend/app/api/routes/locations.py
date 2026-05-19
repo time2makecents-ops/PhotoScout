@@ -19,6 +19,7 @@ from app.models import (
     ChallengeSubmission,
     ImageAsset,
     ImageMetadata,
+    ImageRole,
     LicenseInquiry,
     Location,
     LocationVisibility,
@@ -31,6 +32,34 @@ from app.services.auth import get_current_user, get_optional_user
 from app.services.serializers import location_to_read
 
 router = APIRouter()
+
+
+def _normalize_image_role(value: str | None, default: ImageRole) -> str:
+    allowed_roles = {role.value for role in ImageRole}
+    if not value:
+        return default.value
+    normalized = value.strip().lower()
+    if normalized not in allowed_roles:
+        raise HTTPException(status_code=400, detail="Invalid image role")
+    return normalized
+
+
+def _normalize_heading_source(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"sensor", "manual", "unavailable"}:
+        raise HTTPException(status_code=400, detail="Invalid heading source")
+    return normalized
+
+
+def _parse_float_value(value: str | None) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid numeric metadata value")
 
 
 def can_view_exact_location(location: Location, current_user: User | None) -> bool:
@@ -93,6 +122,7 @@ def write_location_bundle(location: Location, images: list[ImageAsset]) -> None:
         "images": [
             {
                 "id": image.id,
+                "image_role": image.image_role,
                 "title": image.title,
                 "caption": image.caption,
                 "storage_key": image.storage_key,
@@ -101,6 +131,14 @@ def write_location_bundle(location: Location, images: list[ImageAsset]) -> None:
                 "licensing_available": image.licensing_available,
                 "featured": image.featured,
                 "metadata": {
+                    "gps_latitude": image.image_metadata.gps_latitude if image.image_metadata else None,
+                    "gps_longitude": image.image_metadata.gps_longitude if image.image_metadata else None,
+                    "captured_at_device": image.image_metadata.captured_at_device.isoformat() if image.image_metadata and image.image_metadata.captured_at_device else None,
+                    "camera_heading_degrees": image.image_metadata.camera_heading_degrees if image.image_metadata else None,
+                    "camera_heading_label": image.image_metadata.camera_heading_label if image.image_metadata else None,
+                    "camera_pitch_degrees": image.image_metadata.camera_pitch_degrees if image.image_metadata else None,
+                    "camera_roll_degrees": image.image_metadata.camera_roll_degrees if image.image_metadata else None,
+                    "heading_source": image.image_metadata.heading_source if image.image_metadata else None,
                     "camera_model": image.image_metadata.camera_model if image.image_metadata else None,
                     "lens_model": image.image_metadata.lens_model if image.image_metadata else None,
                     "focal_length": image.image_metadata.focal_length if image.image_metadata else None,
@@ -134,6 +172,15 @@ def _parse_taken_at(value: str | None) -> datetime | None:
         return None
 
 
+def _parse_form_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return _parse_taken_at(value)
+
+
 def _build_image_metadata(
     *,
     camera_model: str | None,
@@ -149,6 +196,14 @@ def _build_image_metadata(
     season: str | None,
     sun_position: str | None,
     camera_direction: str | None,
+    gps_latitude: str | None,
+    gps_longitude: str | None,
+    captured_at_device: str | None,
+    camera_heading_degrees: str | None,
+    camera_heading_label: str | None,
+    camera_pitch_degrees: str | None,
+    camera_roll_degrees: str | None,
+    heading_source: str | None,
     point_of_view: str | None,
     distance_to_subject: str | None,
     notes: str | None,
@@ -158,6 +213,14 @@ def _build_image_metadata(
         exif_metadata.get("taken_at").isoformat(timespec="seconds") if exif_metadata.get("taken_at") else None
     )
     return ImageMetadata(
+        gps_latitude=_parse_float_value(gps_latitude),
+        gps_longitude=_parse_float_value(gps_longitude),
+        captured_at_device=_parse_form_datetime(captured_at_device),
+        camera_heading_degrees=_parse_float_value(camera_heading_degrees),
+        camera_heading_label=camera_heading_label or None,
+        camera_pitch_degrees=_parse_float_value(camera_pitch_degrees),
+        camera_roll_degrees=_parse_float_value(camera_roll_degrees),
+        heading_source=_normalize_heading_source(heading_source),
         camera_model=camera_model or exif_metadata.get("camera_model"),
         lens_model=lens_model or exif_metadata.get("lens_model"),
         focal_length=focal_length or exif_metadata.get("focal_length"),
@@ -166,7 +229,7 @@ def _build_image_metadata(
         iso_speed=iso_speed or exif_metadata.get("iso_speed"),
         white_balance=white_balance or exif_metadata.get("white_balance"),
         exposure_compensation=exposure_compensation or exif_metadata.get("exposure_compensation"),
-        taken_at=_parse_taken_at(taken_at_value),
+        taken_at=_parse_form_datetime(taken_at_value),
         weather=weather,
         season=season or exif_metadata.get("season"),
         sun_position=sun_position or exif_metadata.get("sun_position"),
@@ -298,6 +361,7 @@ def create_location(
 async def add_location_image(
     slug: str,
     file: UploadFile = File(...),
+    image_role: str | None = Form(default=None),
     title: str = Form(...),
     caption: str = Form(default=""),
     licensing_available: bool = Form(default=False),
@@ -315,6 +379,14 @@ async def add_location_image(
     season: str | None = Form(default=None),
     sun_position: str | None = Form(default=None),
     camera_direction: str | None = Form(default=None),
+    gps_latitude: str | None = Form(default=None),
+    gps_longitude: str | None = Form(default=None),
+    captured_at_device: str | None = Form(default=None),
+    camera_heading_degrees: str | None = Form(default=None),
+    camera_heading_label: str | None = Form(default=None),
+    camera_pitch_degrees: str | None = Form(default=None),
+    camera_roll_degrees: str | None = Form(default=None),
+    heading_source: str | None = Form(default=None),
     point_of_view: str | None = Form(default=None),
     distance_to_subject: str | None = Form(default=None),
     notes: str | None = Form(default=None),
@@ -340,6 +412,7 @@ async def add_location_image(
     image = ImageAsset(
         uploader_id=current_user.id,
         location=location,
+        image_role=_normalize_image_role(image_role, ImageRole.location_photo),
         title=title,
         caption=caption,
         storage_key=storage_key,
@@ -362,6 +435,14 @@ async def add_location_image(
         season=season,
         sun_position=sun_position,
         camera_direction=camera_direction,
+        gps_latitude=gps_latitude,
+        gps_longitude=gps_longitude,
+        captured_at_device=captured_at_device,
+        camera_heading_degrees=camera_heading_degrees,
+        camera_heading_label=camera_heading_label,
+        camera_pitch_degrees=camera_pitch_degrees,
+        camera_roll_degrees=camera_roll_degrees,
+        heading_source=heading_source,
         point_of_view=point_of_view,
         distance_to_subject=distance_to_subject,
         notes=notes,

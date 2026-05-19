@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { PrivateLocationContact } from "@/components/private-location-contact";
 import { PhotoFileInputs } from "@/components/photo-file-inputs";
 import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
+import { ShotConditionsCapture } from "@/components/shot-conditions-capture";
 import {
   addImageToLocation,
   assetUrl,
@@ -44,7 +45,26 @@ function metadataItems(image: ImageAsset) {
     return [];
   }
 
+  const gpsSummary =
+    metadata.gps_latitude !== null &&
+    metadata.gps_latitude !== undefined &&
+    metadata.gps_longitude !== null &&
+    metadata.gps_longitude !== undefined
+      ? `${metadata.gps_latitude.toFixed(5)}, ${metadata.gps_longitude.toFixed(5)}`
+      : null;
+
+  const headingSummary =
+    metadata.camera_direction || (metadata.camera_heading_degrees !== null && metadata.camera_heading_degrees !== undefined
+      ? `${Math.round(metadata.camera_heading_degrees)} ${metadata.camera_heading_label || ""}`.trim()
+      : null);
+
   return [
+    ["GPS", gpsSummary],
+    ["Captured", metadata.captured_at_device],
+    ["Facing", headingSummary],
+    ["Heading source", metadata.heading_source],
+    ["Pitch", metadata.camera_pitch_degrees !== null && metadata.camera_pitch_degrees !== undefined ? `${metadata.camera_pitch_degrees} deg` : null],
+    ["Roll", metadata.camera_roll_degrees !== null && metadata.camera_roll_degrees !== undefined ? `${metadata.camera_roll_degrees} deg` : null],
     ["Camera", metadata.camera_model],
     ["Lens", metadata.lens_model],
     ["Focal length", metadata.focal_length],
@@ -57,7 +77,6 @@ function metadataItems(image: ImageAsset) {
     ["Weather", metadata.weather],
     ["Season", metadata.season],
     ["Sun", metadata.sun_position],
-    ["Direction", metadata.camera_direction],
     ["POV", metadata.point_of_view],
     ["Distance", metadata.distance_to_subject],
     ["Notes", metadata.notes]
@@ -148,6 +167,7 @@ export function LocationDetailClient({ initialLocation }: Props) {
       }
       const formData = new FormData(event.currentTarget);
       formData.set("file", selectedPhotoFile);
+      formData.set("image_role", "location_photo");
       const updated = await addImageToLocation(location.slug, formData, token);
       setLocation(updated);
       event.currentTarget.reset();
@@ -278,7 +298,8 @@ export function LocationDetailClient({ initialLocation }: Props) {
                 <input type="checkbox" name="featured" /> Featured on pin
               </label>
             </div>
-            <PhotoMetadataFields prefix="location-photo" />
+            <ShotConditionsCapture idPrefix="pin-detail-photo" />
+            <PhotoMetadataFields prefix="location-photo" showCameraDirection={false} />
             <button type="submit" disabled={addingPhoto}>
               {addingPhoto ? "Uploading..." : "Add photo"}
             </button>

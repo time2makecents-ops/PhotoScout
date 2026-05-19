@@ -1,4 +1,12 @@
 export type ImageMetadata = {
+  gps_latitude?: number | null;
+  gps_longitude?: number | null;
+  captured_at_device?: string | null;
+  camera_heading_degrees?: number | null;
+  camera_heading_label?: string | null;
+  camera_pitch_degrees?: number | null;
+  camera_roll_degrees?: number | null;
+  heading_source?: string | null;
   camera_model?: string | null;
   lens_model?: string | null;
   focal_length?: string | null;
@@ -20,6 +28,7 @@ export type ImageMetadata = {
 export type ImageAsset = {
   id: number;
   location_id?: number | null;
+  image_role: string;
   title: string;
   caption: string;
   source_url: string;

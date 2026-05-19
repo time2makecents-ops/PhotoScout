@@ -179,7 +179,7 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         return body["token"], body
 
-    def upload_image(self, token: str, title: str, featured: bool = False) -> dict:
+    def upload_image(self, token: str, title: str, featured: bool = False, image_role: str = "general") -> dict:
         status, body = multipart_request(
             "/api/uploads/images",
             {
@@ -187,10 +187,19 @@ class PhotoScoutAPITests(unittest.TestCase):
                 "caption": f"{title} caption",
                 "licensing_available": "true",
                 "featured": "true" if featured else "false",
+                "image_role": image_role,
+                "gps_latitude": "34.101010",
+                "gps_longitude": "-118.202020",
+                "captured_at_device": "2025-05-18T10:15:30",
+                "camera_heading_degrees": "238",
+                "camera_heading_label": "SW",
                 "camera_model": "Canon EOS R5",
+                "camera_pitch_degrees": "5.5",
+                "camera_roll_degrees": "-1.2",
+                "heading_source": "sensor",
                 "season": "Summer",
                 "sun_position": "Golden hour",
-                "camera_direction": "W",
+                "camera_direction": "238 SW",
             },
             [("file", f"{title}.jpg", TINY_JPEG, "image/jpeg")],
             token=token,
@@ -206,7 +215,16 @@ class PhotoScoutAPITests(unittest.TestCase):
                 "caption": f"{title} caption",
                 "licensing_available": "true",
                 "featured": "true" if featured else "false",
+                "image_role": "location_photo",
+                "gps_latitude": "34.052235",
+                "gps_longitude": "-118.243683",
+                "captured_at_device": "2025-05-18T10:15:30",
+                "camera_heading_degrees": "225",
+                "camera_heading_label": "SW",
                 "camera_model": "Nikon Z8",
+                "camera_pitch_degrees": "3.2",
+                "camera_roll_degrees": "-0.8",
+                "heading_source": "manual",
                 "lens_model": "NIKKOR Z 24-70mm f/2.8",
                 "focal_length": "24mm",
                 "aperture": "f/2.8",
@@ -218,7 +236,7 @@ class PhotoScoutAPITests(unittest.TestCase):
                 "weather": "Clear",
                 "season": "Spring",
                 "sun_position": "Morning",
-                "camera_direction": "W",
+                "camera_direction": "Manual: 225 SW",
                 "point_of_view": "Eye level",
                 "distance_to_subject": "30 meters",
                 "notes": "Added from pin detail flow.",
@@ -293,11 +311,17 @@ class PhotoScoutAPITests(unittest.TestCase):
     def test_upload_location_bundle_and_profile_images(self) -> None:
         email = f"lena-{uuid.uuid4().hex[:6]}@example.com"
         token, registered = self.register_user(email, unique_slug("lena"), "Lena Test")
-        image = self.upload_image(token, "Area shot", featured=True)
+        image = self.upload_image(token, "Area shot", featured=True, image_role="area_image")
 
         status, image_detail = json_request("GET", f"/api/images/{image['id']}")
         self.assertEqual(status, 200, image_detail)
         self.assertIsNone(image_detail["location_id"])
+        self.assertEqual(image_detail["image_role"], "area_image")
+        self.assertEqual(image_detail["image_metadata"]["gps_latitude"], 34.10101)
+        self.assertEqual(image_detail["image_metadata"]["gps_longitude"], -118.20202)
+        self.assertEqual(image_detail["image_metadata"]["camera_heading_degrees"], 238.0)
+        self.assertEqual(image_detail["image_metadata"]["camera_heading_label"], "SW")
+        self.assertEqual(image_detail["image_metadata"]["heading_source"], "sensor")
         self.assertEqual(image_detail["image_metadata"]["camera_model"], "Canon EOS R5")
         self.assertEqual(image_detail["image_metadata"]["season"], "Summer")
 
@@ -328,6 +352,7 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 201, location)
         self.assertEqual(location["street_address"], "123 Test Ave, Los Angeles, CA 90012")
         self.assertEqual(location["zip_code"], "90012")
+        self.assertEqual(location["images"][0]["image_role"], "area_image")
         self.assertEqual(location["images"][0]["location_id"], location["id"])
         self.assertEqual(location["images"][0]["featured"], True)
 
@@ -340,11 +365,12 @@ class PhotoScoutAPITests(unittest.TestCase):
             manifest["images"][0]["storage_key"],
             f"{location['slug']}/{Path(image['source_url']).name}",
         )
+        self.assertEqual(manifest["images"][0]["image_role"], "area_image")
 
     def test_profile_includes_created_locations(self) -> None:
         email = f"profile-locations-{uuid.uuid4().hex[:6]}@example.com"
         token, registered = self.register_user(email, unique_slug("creator"), "Creator Test")
-        image = self.upload_image(token, "Location thumbnail", featured=True)
+        image = self.upload_image(token, "Location thumbnail", featured=True, image_role="area_image")
 
         status, location = json_request(
             "POST",
@@ -371,6 +397,7 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 200, profile)
         self.assertEqual(len(profile["created_locations"]), 1)
         self.assertEqual(profile["created_locations"][0]["slug"], location["slug"])
+        self.assertEqual(profile["created_locations"][0]["images"][0]["image_role"], "area_image")
         self.assertEqual(profile["created_locations"][0]["images"][0]["location_id"], location["id"])
         self.assertTrue(profile["created_locations"][0]["images"][0]["featured"])
         self.assertEqual(profile["created_locations"][0]["images"][0]["title"], "Location thumbnail")
@@ -378,7 +405,7 @@ class PhotoScoutAPITests(unittest.TestCase):
     def test_location_creation_without_street_address(self) -> None:
         email = f"hike-{uuid.uuid4().hex[:6]}@example.com"
         token, _ = self.register_user(email, unique_slug("hike"), "Hike Tester")
-        image = self.upload_image(token, "Trailhead view")
+        image = self.upload_image(token, "Trailhead view", image_role="area_image")
 
         status, location = json_request(
             "POST",
@@ -401,11 +428,12 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 201, location)
         self.assertEqual(location["street_address"], "")
         self.assertEqual(location["name"], "Trail Pin")
+        self.assertEqual(location["images"][0]["image_role"], "area_image")
 
     def test_update_location(self) -> None:
         email = f"edit-{uuid.uuid4().hex[:6]}@example.com"
         token, registered = self.register_user(email, unique_slug("edit"), "Edit Tester")
-        image = self.upload_image(token, "Editable location image")
+        image = self.upload_image(token, "Editable location image", image_role="area_image")
 
         status, location = json_request(
             "POST",
@@ -426,6 +454,7 @@ class PhotoScoutAPITests(unittest.TestCase):
             token=token,
         )
         self.assertEqual(status, 201, location)
+        self.assertEqual(location["images"][0]["image_role"], "area_image")
 
         status, updated = json_request(
             "PATCH",
@@ -458,7 +487,7 @@ class PhotoScoutAPITests(unittest.TestCase):
     def test_owner_can_add_delete_photos_and_delete_location(self) -> None:
         email = f"pin-{uuid.uuid4().hex[:6]}@example.com"
         token, _ = self.register_user(email, unique_slug("pin"), "Pin Owner")
-        base_image = self.upload_image(token, "Base location image", featured=True)
+        base_image = self.upload_image(token, "Base location image", featured=True, image_role="area_image")
 
         status, location = json_request(
             "POST",
@@ -481,12 +510,19 @@ class PhotoScoutAPITests(unittest.TestCase):
         )
         self.assertEqual(status, 201, location)
         self.assertEqual(len(location["images"]), 1)
+        self.assertEqual(location["images"][0]["image_role"], "area_image")
 
         status, updated = self.upload_location_image(token, location["slug"], "Extra pin photo")
         self.assertEqual(status, 201, updated)
         self.assertEqual(len(updated["images"]), 2)
         self.assertEqual(updated["images"][0]["title"], "Base location image")
         self.assertEqual(updated["images"][1]["title"], "Extra pin photo")
+        self.assertEqual(updated["images"][1]["image_role"], "location_photo")
+        self.assertEqual(updated["images"][1]["image_metadata"]["gps_latitude"], 34.052235)
+        self.assertEqual(updated["images"][1]["image_metadata"]["camera_heading_degrees"], 225.0)
+        self.assertEqual(updated["images"][1]["image_metadata"]["camera_heading_label"], "SW")
+        self.assertEqual(updated["images"][1]["image_metadata"]["heading_source"], "manual")
+        self.assertEqual(updated["images"][1]["image_metadata"]["camera_direction"], "Manual: 225 SW")
         self.assertEqual(updated["images"][1]["image_metadata"]["camera_model"], "Nikon Z8")
 
         extra_image_id = updated["images"][1]["id"]
@@ -509,7 +545,7 @@ class PhotoScoutAPITests(unittest.TestCase):
     def test_non_owner_cannot_manage_location_photos(self) -> None:
         owner_email = f"owner-{uuid.uuid4().hex[:6]}@example.com"
         owner_token, _ = self.register_user(owner_email, unique_slug("owner"), "Owner Test")
-        owner_image = self.upload_image(owner_token, "Owner pin image")
+        owner_image = self.upload_image(owner_token, "Owner pin image", image_role="area_image")
 
         status, location = json_request(
             "POST",
@@ -569,7 +605,7 @@ class PhotoScoutAPITests(unittest.TestCase):
             connection.commit()
             challenge_id = connection.execute("SELECT id FROM challenges ORDER BY id DESC LIMIT 1").fetchone()[0]
 
-        image = self.upload_image(submitter_token, "Challenge entry")
+        image = self.upload_image(submitter_token, "Challenge entry", image_role="challenge_submission")
         status, submission_detail = json_request(
             "POST",
             f"/api/challenges/{challenge_id}/submissions",
@@ -577,6 +613,7 @@ class PhotoScoutAPITests(unittest.TestCase):
             token=submitter_token,
         )
         self.assertEqual(status, 201, submission_detail)
+        self.assertEqual(submission_detail["submissions"][0]["image"]["image_role"], "challenge_submission")
         submission_id = submission_detail["submissions"][0]["id"]
 
         status, voted = json_request(

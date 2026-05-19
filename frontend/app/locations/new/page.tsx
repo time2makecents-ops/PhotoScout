@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { LocationPickerMapClient } from "@/components/location-picker-map-client";
 import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
 import { PhotoFileInputs } from "@/components/photo-file-inputs";
+import { ShotConditionsCapture } from "@/components/shot-conditions-capture";
 import Link from "next/link";
 
 import { markHomeForRefresh } from "@/components/home-refresh-listener";
@@ -336,6 +337,7 @@ export default function NewLocationPage() {
       return;
     }
     formData.set("file", selectedFile);
+    formData.set("image_role", uploadKind === "area" ? "area_image" : "location_photo");
     const title = String(formData.get("title") || "").trim();
     if (!title) {
       const baseName = locationName.trim() || "PhotoScout location";
@@ -636,12 +638,13 @@ export default function NewLocationPage() {
 
           <form className="form panel" onSubmit={uploadFile} data-upload-kind="area">
             <h3>7. Upload area image</h3>
-            <p className="subtle">This is the overview image for the listing. It does not need camera metadata.</p>
+            <p className="subtle">This is the overview image for the listing. Shot conditions are optional and saved when your phone can provide them.</p>
             <PhotoFileInputs
               idPrefix="area-shot"
               selectedFile={selectedUploadFiles.area}
               onSelect={(file) => setSelectedUploadFiles((current) => ({ ...current, area: file }))}
             />
+            <ShotConditionsCapture idPrefix="area-shot" />
             <div className="field">
               <label htmlFor="area-shot-title">Image title</label>
               <input id="area-shot-title" name="title" placeholder={locationName ? `${locationName} area image` : "Area image"} />
@@ -672,7 +675,8 @@ export default function NewLocationPage() {
               <label htmlFor="location-photo-caption">Caption</label>
               <textarea id="location-photo-caption" name="caption" />
             </div>
-            <PhotoMetadataFields prefix="location-photo" />
+            <ShotConditionsCapture idPrefix="location-photo" />
+            <PhotoMetadataFields prefix="location-photo" showCameraDirection={false} />
             <input type="hidden" name="featured" value="false" />
             <button type="submit" disabled={!hasToken || uploading}>
               {uploading ? "Uploading..." : "Upload location photo"}

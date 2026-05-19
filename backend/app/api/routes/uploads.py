@@ -9,12 +9,31 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import ImageAsset, ImageMetadata, User
+from app.models import ImageAsset, ImageMetadata, ImageRole, User
 from app.schemas.common import ImageRead
 from app.services.auth import get_current_user
 from app.services.serializers import image_to_read
 
 router = APIRouter()
+
+
+def _normalize_image_role(value: str | None) -> str:
+    allowed_roles = {role.value for role in ImageRole}
+    if not value:
+        return ImageRole.general.value
+    normalized = value.strip().lower()
+    if normalized not in allowed_roles:
+        raise HTTPException(status_code=400, detail="Invalid image role")
+    return normalized
+
+
+def _normalize_heading_source(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"sensor", "manual", "unavailable"}:
+        raise HTTPException(status_code=400, detail="Invalid heading source")
+    return normalized
 
 def _rational_to_string(value) -> str | None:
     if value is None:
@@ -78,6 +97,24 @@ def _parse_taken_at(value) -> datetime | None:
     return None
 
 
+def _parse_form_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return _parse_taken_at(value)
+
+
+def _parse_float_value(value: str | None) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid numeric metadata value")
+
+
 def extract_exif_metadata(image_bytes: bytes) -> dict[str, str | datetime | None]:
     try:
         with PILImage.open(io.BytesIO(image_bytes)) as image:
@@ -138,6 +175,7 @@ def extract_exif_metadata(image_bytes: bytes) -> dict[str, str | datetime | None
 @router.post("/images", response_model=ImageRead, status_code=status.HTTP_201_CREATED)
 async def upload_image(
     file: UploadFile = File(...),
+    image_role: str | None = Form(default=None),
     title: str = Form(...),
     caption: str = Form(default=""),
     licensing_available: bool = Form(default=False),
@@ -155,6 +193,14 @@ async def upload_image(
     season: str | None = Form(default=None),
     sun_position: str | None = Form(default=None),
     camera_direction: str | None = Form(default=None),
+    gps_latitude: str | None = Form(default=None),
+    gps_longitude: str | None = Form(default=None),
+    captured_at_device: str | None = Form(default=None),
+    camera_heading_degrees: str | None = Form(default=None),
+    camera_heading_label: str | None = Form(default=None),
+    camera_pitch_degrees: str | None = Form(default=None),
+    camera_roll_degrees: str | None = Form(default=None),
+    heading_source: str | None = Form(default=None),
     point_of_view: str | None = Form(default=None),
     distance_to_subject: str | None = Form(default=None),
     notes: str | None = Form(default=None),
@@ -188,6 +234,7 @@ async def upload_image(
 
     image = ImageAsset(
         uploader_id=current_user.id,
+        image_role=_normalize_image_role(image_role),
         title=title,
         caption=caption,
         storage_key=storage_key,
@@ -198,6 +245,14 @@ async def upload_image(
     )
     metadata = ImageMetadata(
         image=image,
+        gps_latitude=_parse_float_value(gps_latitude),
+        gps_longitude=_parse_float_value(gps_longitude),
+        captured_at_device=_parse_form_datetime(captured_at_device),
+        camera_heading_degrees=_parse_float_value(camera_heading_degrees),
+        camera_heading_label=camera_heading_label or None,
+        camera_pitch_degrees=_parse_float_value(camera_pitch_degrees),
+        camera_roll_degrees=_parse_float_value(camera_roll_degrees),
+        heading_source=_normalize_heading_source(heading_source),
         camera_model=camera_model_value,
         lens_model=lens_model_value,
         focal_length=focal_length_value,
@@ -206,7 +261,7 @@ async def upload_image(
         iso_speed=iso_speed_value,
         white_balance=white_balance_value,
         exposure_compensation=exposure_compensation_value,
-        taken_at=datetime.fromisoformat(taken_at_value) if taken_at_value else None,
+        taken_at=_parse_form_datetime(taken_at_value),
         weather=weather,
         season=season,
         sun_position=sun_position_value,

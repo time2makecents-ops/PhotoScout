@@ -2,6 +2,14 @@ import { EmptyState } from "@/components/shell";
 import { assetUrl, getImage } from "@/lib/api";
 
 const metadataRows = [
+  ["GPS latitude", "gps_latitude"],
+  ["GPS longitude", "gps_longitude"],
+  ["Device timestamp", "captured_at_device"],
+  ["Heading degrees", "camera_heading_degrees"],
+  ["Heading label", "camera_heading_label"],
+  ["Heading source", "heading_source"],
+  ["Pitch", "camera_pitch_degrees"],
+  ["Roll", "camera_roll_degrees"],
   ["Camera model", "camera_model"],
   ["Lens model", "lens_model"],
   ["Focal length", "focal_length"],
@@ -19,6 +27,18 @@ const metadataRows = [
   ["Notes", "notes"]
 ] as const;
 
+function formatMetadataValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") {
+    return "Not set";
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    return new Date(value).toLocaleString();
+  }
+  return value;
+}
 
 export default async function ImageDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -48,7 +68,7 @@ export default async function ImageDetailPage({ params }: { params: Promise<{ id
               </p>
               {metadataRows.map(([label, key]) => (
                 <p key={key} className="subtle">
-                  {label}: {image.image_metadata?.[key] || "Not set"}
+                  {label}: {formatMetadataValue(image.image_metadata?.[key])}
                 </p>
               ))}
             </div>

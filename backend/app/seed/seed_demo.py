@@ -100,6 +100,7 @@ def seed() -> None:
         image_public = ImageAsset(
             uploader_id=users[1].id,
             location_id=public_location.id,
+            image_role="area_image",
             title="Bluff Trail At Sunset",
             caption="Warm cross-light over the ocean with layered haze and room for talent along the cliff edge.",
             storage_key="seed-bluff-sunset.jpg",
@@ -111,6 +112,7 @@ def seed() -> None:
         image_private = ImageAsset(
             uploader_id=users[4].id,
             location_id=private_location.id,
+            image_role="area_image",
             title="Glass House Exterior",
             caption="Clean architectural lines, broad parking court, and sunset reflections across canyon-facing glass.",
             storage_key="seed-glass-house.jpg",
@@ -122,6 +124,7 @@ def seed() -> None:
         challenge_image = ImageAsset(
             uploader_id=users[3].id,
             location_id=public_location.id,
+            image_role="challenge_submission",
             title="Backlit Canyon Road",
             caption="Scout reference image from a winding road with layered backlight and practical shoulder access.",
             storage_key="seed-canyon-road.jpg",

@@ -16,6 +16,7 @@ type Props = {
   prefix?: string;
   showLicensing?: boolean;
   includeTakenAt?: boolean;
+  showCameraDirection?: boolean;
   title?: string;
 };
 
@@ -23,7 +24,13 @@ function fieldId(prefix: string | undefined, suffix: string) {
   return prefix ? `${prefix}-${suffix}` : suffix;
 }
 
-export function PhotoMetadataFields({ prefix, showLicensing = true, includeTakenAt = true, title = "Photo metadata" }: Props) {
+export function PhotoMetadataFields({
+  prefix,
+  showLicensing = true,
+  includeTakenAt = true,
+  showCameraDirection = true,
+  title = "Photo metadata"
+}: Props) {
   return (
     <div className="section" style={{ marginTop: "1rem" }}>
       <h3>{title}</h3>
@@ -140,17 +147,19 @@ export function PhotoMetadataFields({ prefix, showLicensing = true, includeTaken
           ))}
         </select>
       </div>
-      <div className="field">
-        <label htmlFor={fieldId(prefix, "camera_direction")}>Compass direction</label>
-        <select id={fieldId(prefix, "camera_direction")} name="camera_direction" defaultValue="">
-          <option value="">Choose direction</option>
-          {cameraDirectionOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </div>
+      {showCameraDirection ? (
+        <div className="field">
+          <label htmlFor={fieldId(prefix, "camera_direction")}>Compass direction</label>
+          <select id={fieldId(prefix, "camera_direction")} name="camera_direction" defaultValue="">
+            <option value="">Choose direction</option>
+            {cameraDirectionOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div className="field">
         <label htmlFor={fieldId(prefix, "point_of_view")}>Point of view</label>
         <select id={fieldId(prefix, "point_of_view")} name="point_of_view" defaultValue="">

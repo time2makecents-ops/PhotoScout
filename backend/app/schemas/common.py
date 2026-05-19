@@ -15,6 +15,14 @@ class TagRead(BaseModel):
 class ImageMetadataRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    gps_latitude: float | None = None
+    gps_longitude: float | None = None
+    captured_at_device: datetime | None = None
+    camera_heading_degrees: float | None = None
+    camera_heading_label: str | None = None
+    camera_pitch_degrees: float | None = None
+    camera_roll_degrees: float | None = None
+    heading_source: str | None = None
     camera_model: str | None = None
     lens_model: str | None = None
     focal_length: str | None = None
@@ -38,6 +46,7 @@ class ImageRead(BaseModel):
 
     id: int
     location_id: int | None = None
+    image_role: str
     title: str
     caption: str
     source_url: str

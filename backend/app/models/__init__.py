@@ -7,6 +7,7 @@ from app.models.entities import (
     HireInquiry,
     ImageAsset,
     ImageMetadata,
+    ImageRole,
     LicenseInquiry,
     Location,
     LocationVisibility,
@@ -26,6 +27,7 @@ __all__ = [
     "HireInquiry",
     "ImageAsset",
     "ImageMetadata",
+    "ImageRole",
     "LicenseInquiry",
     "Location",
     "LocationVisibility",
@@ -35,4 +37,3 @@ __all__ = [
     "TagKind",
     "User",
 ]
-
