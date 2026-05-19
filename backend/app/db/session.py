@@ -32,6 +32,8 @@ def ensure_sqlite_compatibility() -> None:
     with engine.begin() as connection:
         if "locations" in tables:
             location_columns = {column["name"] for column in inspector.get_columns("locations")}
+            if "street_address" not in location_columns:
+                connection.execute(text("ALTER TABLE locations ADD COLUMN street_address VARCHAR(255) NOT NULL DEFAULT ''"))
             if "zip_code" not in location_columns:
                 connection.execute(text("ALTER TABLE locations ADD COLUMN zip_code VARCHAR(20) NOT NULL DEFAULT ''"))
         if "challenge_votes" in tables:

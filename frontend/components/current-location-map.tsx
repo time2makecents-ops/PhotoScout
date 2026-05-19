@@ -16,6 +16,7 @@ type Point = {
 
 type Props = {
   locations: Location[];
+  flashMessage?: string | null;
 };
 
 function createPinIcon(kind: "own" | "other" | "current", label: string): DivIcon {
@@ -78,7 +79,7 @@ function ZoomSync({ zoom }: { zoom: number }) {
   return null;
 }
 
-export function CurrentLocationMap({ locations }: Props) {
+export function CurrentLocationMap({ locations, flashMessage }: Props) {
   const [zoom, setZoom] = useState(12);
   const [currentLocation, setCurrentLocation] = useState<Point | null>(null);
   const [currentHandle, setCurrentHandle] = useState<string | null>(null);
@@ -151,11 +152,12 @@ export function CurrentLocationMap({ locations }: Props) {
   );
 
   return (
-    <div className="panel map-panel">
+    <div className={`panel map-panel ${flashMessage ? "map-panel-flash" : ""}`}>
       <div className="map-toolbar">
         <div>
           <span className="eyebrow">Current location map</span>
           <h3>Pins from the live feed</h3>
+          {flashMessage ? <p className="map-flash">{flashMessage}</p> : null}
         </div>
         <div className="pill-row">
           <button type="button" className="secondary" onClick={() => setZoom((value) => Math.max(4, value - 1))}>
@@ -180,14 +182,17 @@ export function CurrentLocationMap({ locations }: Props) {
           <ZoomSync zoom={zoom} />
           <FitBounds locations={pins} currentLocation={currentLocation} />
           {currentLocation ? (
-            <>
-              <CircleMarker center={[currentLocation.lat, currentLocation.lon]} radius={10} pathOptions={{ color: "#4fd6c3" }} />
-              <Marker
-                position={[currentLocation.lat, currentLocation.lon]}
-                icon={createPinIcon("current", "You are here")}
-                zIndexOffset={-1000}
-              />
-            </>
+            <CircleMarker
+              center={[currentLocation.lat, currentLocation.lon]}
+              radius={8}
+              pathOptions={{
+                color: "#4fd6c3",
+                fillColor: "#4fd6c3",
+                fillOpacity: 0.15,
+                opacity: 0.6,
+                weight: 2
+              }}
+            />
           ) : null}
           {pins.map((location) => (
             <Marker
@@ -202,6 +207,7 @@ export function CurrentLocationMap({ locations }: Props) {
               <Popup>
                 <PinThumbnail location={location} />
                 <strong>{location.name}</strong>
+                {location.street_address ? <div>{location.street_address}</div> : null}
                 <div>{location.city}, {location.region}</div>
                 <div>{location.zip_code || "No ZIP"}</div>
               </Popup>

@@ -13,6 +13,7 @@ type Props = {
   latitude: string;
   longitude: string;
   onChange: (nextLatitude: string, nextLongitude: string) => void;
+  onPickLocation?: (nextLatitude: number, nextLongitude: number) => void;
   label?: string;
 };
 
@@ -46,9 +47,19 @@ function CenterSync({ latitude, longitude }: { latitude: number; longitude: numb
   return null;
 }
 
-export function LocationPickerMap({ latitude, longitude, onChange, label = "Selected location" }: Props) {
+function ResizeMap() {
+  const map = useMap();
+
+  useEffect(() => {
+    map.invalidateSize();
+  }, [map]);
+
+  return null;
+}
+
+export function LocationPickerMap({ latitude, longitude, onChange, onPickLocation, label = "Selected location" }: Props) {
   const [mounted, setMounted] = useState(false);
-  const [dragPosition, setDragPosition] = useState<Position | null>(null);
+  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -64,10 +75,13 @@ export function LocationPickerMap({ latitude, longitude, onChange, label = "Sele
   }, [latitude, longitude]);
 
   useEffect(() => {
-    setDragPosition(position);
+    if (position) {
+      setSelectedPosition(position);
+    }
   }, [position]);
 
-  const center = dragPosition ? [dragPosition.latitude, dragPosition.longitude] : position ? [position.latitude, position.longitude] : [34.05, -118.25];
+  const centerPosition = selectedPosition ?? position ?? { latitude: 34.05, longitude: -118.25 };
+  const center = [centerPosition.latitude, centerPosition.longitude] as [number, number];
 
   if (!mounted) {
     return <div className="map-shell" style={{ minHeight: "18rem" }} />;
@@ -75,28 +89,31 @@ export function LocationPickerMap({ latitude, longitude, onChange, label = "Sele
 
   return (
     <div className="map-shell">
-      <MapContainer center={center as [number, number]} zoom={10} scrollWheelZoom className="leaflet-map">
+      <MapContainer center={center} zoom={10} scrollWheelZoom className="leaflet-map">
+        <ResizeMap />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapInteraction
           onPick={(nextLatitude, nextLongitude) => {
-            setDragPosition({ latitude: nextLatitude, longitude: nextLongitude });
+            setSelectedPosition({ latitude: nextLatitude, longitude: nextLongitude });
             onChange(nextLatitude.toFixed(6), nextLongitude.toFixed(6));
+            onPickLocation?.(nextLatitude, nextLongitude);
           }}
         />
-        {dragPosition ? <CenterSync latitude={dragPosition.latitude} longitude={dragPosition.longitude} /> : null}
+        {selectedPosition ? <CenterSync latitude={selectedPosition.latitude} longitude={selectedPosition.longitude} /> : null}
         <Marker
           draggable
-          position={center as [number, number]}
+          position={center}
           icon={createPinIcon(label)}
           eventHandlers={{
             dragend(event) {
               const marker = event.target;
               const next = marker.getLatLng();
-              setDragPosition({ latitude: next.lat, longitude: next.lng });
+              setSelectedPosition({ latitude: next.lat, longitude: next.lng });
               onChange(next.lat.toFixed(6), next.lng.toFixed(6));
+              onPickLocation?.(next.lat, next.lng);
             }
           }}
         />

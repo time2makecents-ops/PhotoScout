@@ -15,6 +15,7 @@ def search(
     licensing_available: bool | None = None,
     scout_for_hire: bool | None = None,
     tag: str | None = None,
+    zip_code: str | None = None,
     challenge_related: bool | None = None,
     db: Session = Depends(get_db),
 ) -> SearchResponse:
@@ -25,6 +26,6 @@ def search(
         licensing_available=licensing_available,
         scout_for_hire=scout_for_hire,
         tag_slug=tag,
+        zip_code=zip_code,
         challenge_related=challenge_related,
     )
-

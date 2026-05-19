@@ -65,6 +65,7 @@ export type Location = {
   name: string;
   slug: string;
   description: string;
+  street_address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   visibility: string;

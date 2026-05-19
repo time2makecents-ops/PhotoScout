@@ -323,6 +323,25 @@ button.secondary {
   margin-bottom: 0.85rem;
 }
 
+.map-flash {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.35rem 0 0;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(79, 214, 195, 0.18);
+  border: 1px solid rgba(79, 214, 195, 0.3);
+  color: var(--accent-deep);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.map-panel.map-panel-flash {
+  animation: mapPulse 1.4s ease-out 1;
+}
+
 .map-shell {
   position: relative;
   min-height: 17rem;
@@ -544,5 +563,18 @@ textarea {
 
   .mobile-nav {
     display: none;
+  }
+}
+
+@keyframes mapPulse {
+  0% {
+    box-shadow: 0 0 0 rgba(79, 214, 195, 0);
+    transform: translateY(0);
+  }
+  30% {
+    box-shadow: 0 0 0 0.3rem rgba(79, 214, 195, 0.12);
+  }
+  100% {
+    box-shadow: 0 0 0 rgba(79, 214, 195, 0);
   }
 }

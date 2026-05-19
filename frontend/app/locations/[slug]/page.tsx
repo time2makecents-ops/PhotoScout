@@ -21,6 +21,7 @@ export default async function LocationDetailPage({ params }: { params: Promise<{
               <span className="pill">
                 {location.city}, {location.region}
               </span>
+              {location.street_address ? <span className="pill">{location.street_address}</span> : null}
               {location.zip_code ? <span className="pill">{location.zip_code}</span> : null}
               <span className="pill">Pinned by {location.creator_name}</span>
               {location.tags.map((tag) => (

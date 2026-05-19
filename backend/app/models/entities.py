@@ -105,6 +105,7 @@ class Location(Base):
     name: Mapped[str] = mapped_column(String(160), index=True)
     slug: Mapped[str] = mapped_column(String(180), unique=True, index=True)
     description: Mapped[str] = mapped_column(Text)
+    street_address: Mapped[str] = mapped_column(String(255), default="")
     latitude: Mapped[float] = mapped_column(Float)
     longitude: Mapped[float] = mapped_column(Float)
     visibility: Mapped[str] = mapped_column(String(20), default=LocationVisibility.public.value)

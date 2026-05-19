@@ -271,6 +271,7 @@ class PhotoScoutAPITests(unittest.TestCase):
             "/api/locations",
             {
                 "name": "Test Location",
+                "street_address": "123 Test Ave, Los Angeles, CA 90012",
                 "latitude": 34.052235,
                 "longitude": -118.243683,
                 "visibility": "public",
@@ -285,6 +286,7 @@ class PhotoScoutAPITests(unittest.TestCase):
             token=token,
         )
         self.assertEqual(status, 201, location)
+        self.assertEqual(location["street_address"], "123 Test Ave, Los Angeles, CA 90012")
         self.assertEqual(location["zip_code"], "90012")
         self.assertEqual(location["images"][0]["featured"], True)
 
@@ -292,10 +294,38 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertTrue(manifest_path.exists())
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(manifest["location"]["slug"], location["slug"])
+        self.assertEqual(manifest["location"]["street_address"], "123 Test Ave, Los Angeles, CA 90012")
         self.assertEqual(
             manifest["images"][0]["storage_key"],
             f"{location['slug']}/{Path(image['source_url']).name}",
         )
+
+    def test_location_creation_without_street_address(self) -> None:
+        email = f"hike-{uuid.uuid4().hex[:6]}@example.com"
+        token, _ = self.register_user(email, unique_slug("hike"), "Hike Tester")
+        image = self.upload_image(token, "Trailhead view")
+
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            {
+                "name": "Trail Pin",
+                "latitude": 34.1,
+                "longitude": -118.3,
+                "visibility": "public",
+                "description": "A pin-only hiking location without a street address.",
+                "city": "Los Angeles",
+                "region": "CA",
+                "country": "USA",
+                "zip_code": "",
+                "tags": ["hike"],
+                "uploaded_image_ids": [image["id"]],
+            },
+            token=token,
+        )
+        self.assertEqual(status, 201, location)
+        self.assertEqual(location["street_address"], "")
+        self.assertEqual(location["name"], "Trail Pin")
 
     def test_challenge_vote_toggle(self) -> None:
         submitter_email = f"sam-{uuid.uuid4().hex[:6]}@example.com"

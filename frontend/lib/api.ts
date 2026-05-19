@@ -1,7 +1,7 @@
 import type { Challenge, ChallengeDetail, ImageAsset, Location, Profile, SearchResponse } from "./types";
 import { normalizeErrorDetail } from "./errors";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8001";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const BROWSER_API_BASE = "";
 
 export function assetUrl(path: string): string {

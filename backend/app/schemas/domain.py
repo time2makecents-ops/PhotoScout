@@ -50,6 +50,7 @@ class ProfileUpdateRequest(BaseModel):
 class LocationCreateRequest(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     description: str = Field(min_length=10)
+    street_address: str | None = Field(default=None, max_length=255)
     latitude: float
     longitude: float
     visibility: str
@@ -68,6 +69,7 @@ class LocationRead(BaseModel):
     name: str
     slug: str
     description: str
+    street_address: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     visibility: str

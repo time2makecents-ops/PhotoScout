@@ -26,6 +26,7 @@ def location_to_read(location: Location, include_exact_coordinates: bool) -> Loc
         name=location.name,
         slug=location.slug,
         description=location.description,
+        street_address=location.street_address if include_exact_coordinates else "",
         latitude=location.latitude if include_exact_coordinates else location.approximate_latitude,
         longitude=location.longitude if include_exact_coordinates else location.approximate_longitude,
         visibility=location.visibility,

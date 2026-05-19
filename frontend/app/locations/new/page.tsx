@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { LocationPickerMapClient } from "@/components/location-picker-map-client";
+import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
+import { markHomeForRefresh } from "@/components/home-refresh-listener";
 import { getStoredToken, setStoredToken } from "@/lib/auth";
 import { normalizeErrorDetail } from "@/lib/errors";
-import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
 
 const steps = ["Confirm map pin", "Name location", "Choose visibility", "Describe location", "Add tags", "Zip code", "Upload photo"];
 
@@ -19,6 +20,24 @@ async function readResponseBody(response: Response) {
   }
 }
 
+type AddressParts = {
+  streetAddress?: string;
+  zipCode?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+};
+
+function extractAddressParts(address: Record<string, string | undefined> | undefined, displayName?: string): AddressParts {
+  return {
+    streetAddress: displayName?.trim() || undefined,
+    zipCode: address?.postcode,
+    city: address?.city || address?.town || address?.village || address?.hamlet || address?.suburb,
+    region: address?.state || address?.region || address?.county,
+    country: address?.country
+  };
+}
+
 export default function NewLocationPage() {
   const router = useRouter();
   const [uploadedImageIds, setUploadedImageIds] = useState<number[]>([]);
@@ -27,20 +46,88 @@ export default function NewLocationPage() {
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [locationName, setLocationName] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [mapZipCode, setMapZipCode] = useState("");
   const [zipCode, setZipCode] = useState("");
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
+  const [country, setCountry] = useState("USA");
   const [approximateLatitude, setApproximateLatitude] = useState("");
   const [approximateLongitude, setApproximateLongitude] = useState("");
   const [locating, setLocating] = useState(false);
   const [geocodingZip, setGeocodingZip] = useState(false);
+  const [resolvingPlace, setResolvingPlace] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [hasToken, setHasToken] = useState(false);
 
-  const apiBase = useMemo(() => "", []);
-
   useEffect(() => {
     setHasToken(Boolean(getStoredToken()));
   }, []);
+
+  function setFormValue(form: HTMLFormElement, name: string, value: string | null | undefined) {
+    if (value == null || value === "") {
+      return;
+    }
+    const field = form.elements.namedItem(name);
+    if (!field) {
+      return;
+    }
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) {
+      field.value = value;
+    }
+  }
+
+  function updateCoordinates(nextLatitude: string, nextLongitude: string) {
+    setLatitude(nextLatitude);
+    setLongitude(nextLongitude);
+    setApproximateLatitude(nextLatitude);
+    setApproximateLongitude(nextLongitude);
+  }
+
+  function applyAddressParts(parts: AddressParts) {
+    if (parts.streetAddress) {
+      setStreetAddress(parts.streetAddress);
+    }
+    if (parts.zipCode) {
+      setZipCode(parts.zipCode);
+      setMapZipCode(parts.zipCode);
+    }
+    if (parts.city) {
+      setCity(parts.city);
+    }
+    if (parts.region) {
+      setRegion(parts.region);
+    }
+    if (parts.country) {
+      setCountry(parts.country);
+    }
+  }
+
+  async function reverseGeocode(nextLatitude: string, nextLongitude: string) {
+    if (!nextLatitude || !nextLongitude || Number.isNaN(Number(nextLatitude)) || Number.isNaN(Number(nextLongitude))) {
+      return;
+    }
+
+    setResolvingPlace(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(nextLatitude)}&lon=${encodeURIComponent(nextLongitude)}&addressdetails=1`,
+        {
+          headers: {
+            Accept: "application/json"
+          }
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.address) {
+        return;
+      }
+      applyAddressParts(extractAddressParts(data.address as Record<string, string | undefined>, data.display_name));
+    } finally {
+      setResolvingPlace(false);
+    }
+  }
 
   async function signInDemoPhotographer() {
     setStatus("Signing in to the seeded demo photographer account...");
@@ -62,20 +149,7 @@ export default function NewLocationPage() {
     setStatus("Signed in. You can upload a photo and create a location now.");
   }
 
-  function setFormValue(form: HTMLFormElement, name: string, value: string | null | undefined) {
-    if (value == null || value === "") {
-      return;
-    }
-    const field = form.elements.namedItem(name);
-    if (!field) {
-      return;
-    }
-    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) {
-      field.value = value;
-    }
-  }
-
-  function useCurrentLocation() {
+  async function useCurrentLocation() {
     if (!navigator.geolocation) {
       setStatus("This browser does not support GPS location.");
       return;
@@ -87,11 +161,9 @@ export default function NewLocationPage() {
       (position) => {
         const nextLatitude = position.coords.latitude.toFixed(6);
         const nextLongitude = position.coords.longitude.toFixed(6);
-        setLatitude(nextLatitude);
-        setLongitude(nextLongitude);
-        setApproximateLatitude(nextLatitude);
-        setApproximateLongitude(nextLongitude);
+        updateCoordinates(nextLatitude, nextLongitude);
         setLocating(false);
+        void reverseGeocode(nextLatitude, nextLongitude);
         setStatus("Current GPS coordinates added.");
       },
       (error) => {
@@ -110,15 +182,8 @@ export default function NewLocationPage() {
     );
   }
 
-  function updateCoordinates(nextLatitude: string, nextLongitude: string) {
-    setLatitude(nextLatitude);
-    setLongitude(nextLongitude);
-    setApproximateLatitude(nextLatitude);
-    setApproximateLongitude(nextLongitude);
-  }
-
   async function useZipCode() {
-    const trimmed = zipCode.trim();
+    const trimmed = mapZipCode.trim();
     if (!trimmed) {
       setStatus("Enter a ZIP code first.");
       return;
@@ -126,25 +191,32 @@ export default function NewLocationPage() {
 
     setGeocodingZip(true);
     setStatus("Looking up ZIP code on the map...");
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=us&postalcode=${encodeURIComponent(trimmed)}&limit=1`,
-      {
-        headers: {
-          Accept: "application/json"
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=us&postalcode=${encodeURIComponent(trimmed)}&addressdetails=1&limit=1`,
+        {
+          headers: {
+            Accept: "application/json"
+          }
         }
+      );
+      const data = await response.json().catch(() => []);
+
+      if (!response.ok || !Array.isArray(data) || data.length === 0) {
+        setStatus("Could not find that ZIP code on the map.");
+        return;
       }
-    );
-    const data = await response.json().catch(() => []);
-    setGeocodingZip(false);
 
-    if (!response.ok || !Array.isArray(data) || data.length === 0) {
-      setStatus("Could not find that ZIP code on the map.");
-      return;
+      const place = data[0];
+      const nextLatitude = String(Number(place.lat).toFixed(6));
+      const nextLongitude = String(Number(place.lon).toFixed(6));
+      updateCoordinates(nextLatitude, nextLongitude);
+      setZipCode(place.address?.postcode || trimmed);
+      applyAddressParts(extractAddressParts(place.address as Record<string, string | undefined>, place.display_name));
+      setStatus(`ZIP code ${trimmed} placed on the map.`);
+    } finally {
+      setGeocodingZip(false);
     }
-
-    const place = data[0];
-    updateCoordinates(String(Number(place.lat).toFixed(6)), String(Number(place.lon).toFixed(6)));
-    setStatus(`ZIP code ${trimmed} placed on the map.`);
   }
 
   async function uploadFile(event: FormEvent<HTMLFormElement>) {
@@ -159,7 +231,7 @@ export default function NewLocationPage() {
     setUploading(true);
     setStatus("Uploading image...");
     const formData = new FormData(uploadForm);
-    const response = await fetch(`${apiBase}/api/uploads/images`, {
+    const response = await fetch("/api/uploads/images", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: formData
@@ -205,7 +277,7 @@ export default function NewLocationPage() {
     setCreating(true);
     setStatus("Creating location...");
     const form = new FormData(event.currentTarget);
-    const response = await fetch(`${apiBase}/api/locations`, {
+    const response = await fetch("/api/locations", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -222,7 +294,8 @@ export default function NewLocationPage() {
         city: form.get("city"),
         region: form.get("region"),
         country: form.get("country"),
-        zip_code: form.get("zip_code"),
+        street_address: streetAddress,
+        zip_code: zipCode,
         tags: String(form.get("tags") || "")
           .split(",")
           .map((item) => item.trim())
@@ -237,6 +310,7 @@ export default function NewLocationPage() {
       return;
     }
 
+    markHomeForRefresh();
     setStatus(`Location created: ${data.name}`);
     router.push("/home");
   }
@@ -277,7 +351,7 @@ export default function NewLocationPage() {
             <h3>1-6. Enter listing details</h3>
             <div className="field">
               <label>Use phone GPS</label>
-              <button type="button" className="secondary" onClick={useCurrentLocation} disabled={locating}>
+              <button type="button" className="secondary" onClick={useCurrentLocation} disabled={locating || resolvingPlace}>
                 {locating ? "Getting location..." : "Use current location"}
               </button>
             </div>
@@ -290,15 +364,23 @@ export default function NewLocationPage() {
                   inputMode="numeric"
                   list="zip-code-options"
                   placeholder="90265"
-                  value={zipCode}
-                  onChange={(event) => setZipCode(event.target.value)}
+                  value={mapZipCode}
+                  onChange={(event) => setMapZipCode(event.target.value)}
                 />
-                <button type="button" className="secondary" onClick={useZipCode} disabled={geocodingZip}>
+                <button type="button" className="secondary" onClick={useZipCode} disabled={geocodingZip || resolvingPlace}>
                   {geocodingZip ? "Finding..." : "Place pin"}
                 </button>
               </div>
             </div>
-            <LocationPickerMapClient latitude={latitude} longitude={longitude} onChange={updateCoordinates} label={locationName || "Selected location"} />
+            <LocationPickerMapClient
+              latitude={latitude}
+              longitude={longitude}
+              onChange={updateCoordinates}
+              onPickLocation={(nextLatitude, nextLongitude) => {
+                void reverseGeocode(nextLatitude.toFixed(6), nextLongitude.toFixed(6));
+              }}
+              label={locationName || "Selected location"}
+            />
             <div className="field">
               <label htmlFor="latitude">Latitude</label>
               <input
@@ -328,6 +410,17 @@ export default function NewLocationPage() {
               <input id="name" name="name" value={locationName} onChange={(event) => setLocationName(event.target.value)} required />
             </div>
             <div className="field">
+              <label htmlFor="street_address">Exact address</label>
+              <input
+                id="street_address"
+                name="street_address"
+                value={streetAddress}
+                onChange={(event) => setStreetAddress(event.target.value)}
+                placeholder="123 Main St, Los Angeles, CA 90012"
+              />
+              <p className="subtle">Optional. Saved exactly as entered and auto-filled from GPS, ZIP, or map pin when available.</p>
+            </div>
+            <div className="field">
               <label htmlFor="visibility">Visibility</label>
               <select id="visibility" name="visibility" defaultValue="public">
                 <option value="public">Public</option>
@@ -344,15 +437,15 @@ export default function NewLocationPage() {
             </div>
             <div className="field">
               <label htmlFor="city">City</label>
-              <input id="city" name="city" />
+              <input id="city" name="city" value={city} onChange={(event) => setCity(event.target.value)} />
             </div>
             <div className="field">
               <label htmlFor="region">Region / state</label>
-              <input id="region" name="region" />
+              <input id="region" name="region" value={region} onChange={(event) => setRegion(event.target.value)} />
             </div>
             <div className="field">
               <label htmlFor="country">Country</label>
-              <input id="country" name="country" defaultValue="USA" />
+              <input id="country" name="country" value={country} onChange={(event) => setCountry(event.target.value)} />
             </div>
             <div className="field">
               <label htmlFor="zip_code">Zip code</label>
@@ -448,6 +541,7 @@ export default function NewLocationPage() {
           </form>
         </div>
         {status ? <p className="status">{status}</p> : null}
+        {resolvingPlace ? <p className="subtle">Resolving ZIP and address from the pin...</p> : null}
       </div>
     </section>
   );

@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
+import { HOME_FLASH_KEY } from "@/components/home-refresh-listener";
 import type { Location } from "@/lib/types";
 
 const CurrentLocationMap = dynamic(
@@ -12,10 +13,25 @@ const CurrentLocationMap = dynamic(
 
 export function HomeLocationMap({ locations }: { locations: Location[] }) {
   const [mounted, setMounted] = useState(false);
+  const [flashMessage, setFlashMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const message = window.localStorage.getItem(HOME_FLASH_KEY);
+    if (!message) {
+      return;
+    }
+    window.localStorage.removeItem(HOME_FLASH_KEY);
+    setFlashMessage(message);
+    const timeout = window.setTimeout(() => setFlashMessage(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [mounted]);
 
   if (!mounted) {
     return (
@@ -27,5 +43,5 @@ export function HomeLocationMap({ locations }: { locations: Location[] }) {
     );
   }
 
-  return <CurrentLocationMap locations={locations} />;
+  return <CurrentLocationMap locations={locations} flashMessage={flashMessage} />;
 }

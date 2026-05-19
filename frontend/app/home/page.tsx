@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { HomeLocationMap } from "@/components/home-location-map";
 import { HireableContact } from "@/components/hireable-contact";
+import { HomeRefreshListener } from "@/components/home-refresh-listener";
 import { SectionHeading } from "@/components/shell";
 import { assetUrl, getChallenge, getChallenges, getLocations, getProfiles } from "@/lib/api";
 
@@ -14,6 +15,7 @@ export default async function HomePage() {
 
   return (
     <>
+      <HomeRefreshListener />
       <section className="hero">
         <div className="hero-card hero-copy">
           <span className="hero-kicker">Mobile-first MVP foundation</span>
