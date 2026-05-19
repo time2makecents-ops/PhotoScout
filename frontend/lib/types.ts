@@ -19,6 +19,7 @@ export type ImageMetadata = {
 
 export type ImageAsset = {
   id: number;
+  location_id?: number | null;
   title: string;
   caption: string;
   source_url: string;

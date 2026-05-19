@@ -1,15 +1,31 @@
+from __future__ import annotations
+
 import json
 import shutil
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.routes.uploads import extract_exif_metadata
 from app.core.config import settings
 from app.core.utils import slugify
 from app.db.session import get_db
-from app.models import ImageAsset, Location, LocationVisibility, Tag, TagKind, User
+from app.models import (
+    AccessInquiry,
+    ChallengeSubmission,
+    ImageAsset,
+    ImageMetadata,
+    LicenseInquiry,
+    Location,
+    LocationVisibility,
+    Tag,
+    TagKind,
+    User,
+)
 from app.schemas.domain import LocationCreateRequest, LocationRead, LocationUpdateRequest
 from app.services.auth import get_current_user, get_optional_user
 from app.services.serializers import location_to_read
@@ -29,6 +45,19 @@ def can_edit_location(location: Location, current_user: User) -> bool:
     return current_user.id == location.creator_id or current_user.role == "admin"
 
 
+def get_location_with_relations(db: Session, slug: str) -> Location | None:
+    return db.scalar(
+        select(Location)
+        .options(
+            joinedload(Location.tags),
+            joinedload(Location.images).joinedload(ImageAsset.image_metadata),
+            joinedload(Location.creator).joinedload(User.profile),
+            joinedload(Location.access_inquiries),
+        )
+        .where(Location.slug == slug)
+    )
+
+
 def write_location_bundle(location: Location, images: list[ImageAsset]) -> None:
     location_dir = Path(settings.upload_dir) / location.slug
     location_dir.mkdir(parents=True, exist_ok=True)
@@ -37,7 +66,7 @@ def write_location_bundle(location: Location, images: list[ImageAsset]) -> None:
         current_path = Path(settings.upload_dir) / image.storage_key
         target_name = Path(image.storage_key).name
         target_path = location_dir / target_name
-        if current_path.exists():
+        if current_path.exists() and current_path.resolve() != target_path.resolve():
             shutil.move(str(current_path), str(target_path))
         image.storage_key = f"{location.slug}/{target_name}"
         image.source_url = f"/uploads/{location.slug}/{target_name}"
@@ -96,6 +125,75 @@ def write_location_bundle(location: Location, images: list[ImageAsset]) -> None:
     (location_dir / "location.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+def _parse_taken_at(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _build_image_metadata(
+    *,
+    camera_model: str | None,
+    lens_model: str | None,
+    focal_length: str | None,
+    aperture: str | None,
+    shutter_speed: str | None,
+    iso_speed: str | None,
+    white_balance: str | None,
+    exposure_compensation: str | None,
+    taken_at: str | None,
+    weather: str | None,
+    season: str | None,
+    sun_position: str | None,
+    camera_direction: str | None,
+    point_of_view: str | None,
+    distance_to_subject: str | None,
+    notes: str | None,
+    exif_metadata: dict[str, str | datetime | None],
+) -> ImageMetadata:
+    taken_at_value = taken_at or (
+        exif_metadata.get("taken_at").isoformat(timespec="seconds") if exif_metadata.get("taken_at") else None
+    )
+    return ImageMetadata(
+        camera_model=camera_model or exif_metadata.get("camera_model"),
+        lens_model=lens_model or exif_metadata.get("lens_model"),
+        focal_length=focal_length or exif_metadata.get("focal_length"),
+        aperture=aperture or exif_metadata.get("aperture"),
+        shutter_speed=shutter_speed or exif_metadata.get("shutter_speed"),
+        iso_speed=iso_speed or exif_metadata.get("iso_speed"),
+        white_balance=white_balance or exif_metadata.get("white_balance"),
+        exposure_compensation=exposure_compensation or exif_metadata.get("exposure_compensation"),
+        taken_at=_parse_taken_at(taken_at_value),
+        weather=weather,
+        season=season or exif_metadata.get("season"),
+        sun_position=sun_position or exif_metadata.get("sun_position"),
+        camera_direction=camera_direction or exif_metadata.get("camera_direction"),
+        point_of_view=point_of_view,
+        distance_to_subject=distance_to_subject,
+        notes=notes,
+    )
+
+
+def _delete_image_artifacts(db: Session, image: ImageAsset) -> None:
+    for submission in list(image.submissions):
+        for vote in list(submission.votes):
+            db.delete(vote)
+        db.delete(submission)
+    for inquiry in list(image.license_inquiries):
+        db.delete(inquiry)
+    if image.image_metadata:
+        db.delete(image.image_metadata)
+
+    file_path = Path(settings.upload_dir) / image.storage_key
+    if file_path.exists():
+        file_path.unlink()
+
+    db.delete(image)
+
+
 @router.get("", response_model=list[LocationRead])
 def list_locations(
     visibility: str | None = None,
@@ -126,15 +224,7 @@ def get_location(
     current_user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ) -> LocationRead:
-    location = db.scalar(
-        select(Location)
-        .options(
-            joinedload(Location.tags),
-            joinedload(Location.images).joinedload(ImageAsset.image_metadata),
-            joinedload(Location.creator).joinedload(User.profile),
-        )
-        .where(Location.slug == slug)
-    )
+    location = get_location_with_relations(db, slug)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
     return location_to_read(location, can_view_exact_location(location, current_user))
@@ -200,15 +290,125 @@ def create_location(
     write_location_bundle(location, images)
     db.commit()
 
-    hydrated = db.scalar(
-        select(Location)
-        .options(
-            joinedload(Location.tags),
-            joinedload(Location.images).joinedload(ImageAsset.image_metadata),
-            joinedload(Location.creator).joinedload(User.profile),
-        )
-        .where(Location.id == location.id)
+    hydrated = get_location_with_relations(db, location.slug)
+    return location_to_read(hydrated, True)
+
+
+@router.post("/{slug}/images", response_model=LocationRead, status_code=status.HTTP_201_CREATED)
+async def add_location_image(
+    slug: str,
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    caption: str = Form(default=""),
+    licensing_available: bool = Form(default=False),
+    featured: bool = Form(default=False),
+    camera_model: str | None = Form(default=None),
+    lens_model: str | None = Form(default=None),
+    focal_length: str | None = Form(default=None),
+    aperture: str | None = Form(default=None),
+    shutter_speed: str | None = Form(default=None),
+    iso_speed: str | None = Form(default=None),
+    white_balance: str | None = Form(default=None),
+    exposure_compensation: str | None = Form(default=None),
+    taken_at: str | None = Form(default=None),
+    weather: str | None = Form(default=None),
+    season: str | None = Form(default=None),
+    sun_position: str | None = Form(default=None),
+    camera_direction: str | None = Form(default=None),
+    point_of_view: str | None = Form(default=None),
+    distance_to_subject: str | None = Form(default=None),
+    notes: str | None = Form(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationRead:
+    location = get_location_with_relations(db, slug)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+    if not can_edit_location(location, current_user):
+        raise HTTPException(status_code=403, detail="You do not have permission to add photos to this location")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File name is required")
+
+    image_bytes = await file.read()
+    exif_metadata = extract_exif_metadata(image_bytes)
+
+    extension = Path(file.filename).suffix.lower() or ".jpg"
+    storage_key = f"{uuid4().hex}{extension}"
+    destination = Path(settings.upload_dir) / storage_key
+    destination.write_bytes(image_bytes)
+
+    image = ImageAsset(
+        uploader_id=current_user.id,
+        location=location,
+        title=title,
+        caption=caption,
+        storage_key=storage_key,
+        source_url=f"/uploads/{storage_key}",
+        mime_type=file.content_type or "image/jpeg",
+        licensing_available=licensing_available,
+        featured=featured,
     )
+    metadata = _build_image_metadata(
+        camera_model=camera_model,
+        lens_model=lens_model,
+        focal_length=focal_length,
+        aperture=aperture,
+        shutter_speed=shutter_speed,
+        iso_speed=iso_speed,
+        white_balance=white_balance,
+        exposure_compensation=exposure_compensation,
+        taken_at=taken_at,
+        weather=weather,
+        season=season,
+        sun_position=sun_position,
+        camera_direction=camera_direction,
+        point_of_view=point_of_view,
+        distance_to_subject=distance_to_subject,
+        notes=notes,
+        exif_metadata=exif_metadata,
+    )
+    image.image_metadata = metadata
+    db.add_all([image, metadata])
+    db.flush()
+    write_location_bundle(location, list(location.images))
+    db.commit()
+
+    hydrated = get_location_with_relations(db, slug)
+    return location_to_read(hydrated, True)
+
+
+@router.delete("/{slug}/images/{image_id}", response_model=LocationRead)
+def delete_location_image(
+    slug: str,
+    image_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationRead:
+    location = get_location_with_relations(db, slug)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+    if not can_edit_location(location, current_user):
+        raise HTTPException(status_code=403, detail="You do not have permission to delete photos from this location")
+
+    image = db.scalar(
+        select(ImageAsset)
+        .options(
+            joinedload(ImageAsset.image_metadata),
+            joinedload(ImageAsset.submissions).joinedload(ChallengeSubmission.votes),
+            joinedload(ImageAsset.license_inquiries),
+        )
+        .where(ImageAsset.id == image_id, ImageAsset.location_id == location.id)
+    )
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    remaining_images = [item for item in location.images if item.id != image.id]
+    _delete_image_artifacts(db, image)
+    db.flush()
+    write_location_bundle(location, remaining_images)
+    db.commit()
+
+    hydrated = get_location_with_relations(db, slug)
     return location_to_read(hydrated, True)
 
 
@@ -219,15 +419,7 @@ def update_location(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> LocationRead:
-    location = db.scalar(
-        select(Location)
-        .options(
-            joinedload(Location.tags),
-            joinedload(Location.images).joinedload(ImageAsset.image_metadata),
-            joinedload(Location.creator).joinedload(User.profile),
-        )
-        .where(Location.slug == slug)
-    )
+    location = get_location_with_relations(db, slug)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
     if not can_edit_location(location, current_user):
@@ -291,13 +483,37 @@ def update_location(
     write_location_bundle(location, list(location.images))
     db.commit()
 
-    hydrated = db.scalar(
-        select(Location)
-        .options(
-            joinedload(Location.tags),
-            joinedload(Location.images).joinedload(ImageAsset.image_metadata),
-            joinedload(Location.creator).joinedload(User.profile),
-        )
-        .where(Location.id == location.id)
-    )
+    hydrated = get_location_with_relations(db, slug)
     return location_to_read(hydrated, True)
+
+
+@router.delete("/{slug}", status_code=status.HTTP_200_OK)
+def delete_location(
+    slug: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    location = get_location_with_relations(db, slug)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+    if not can_edit_location(location, current_user):
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this location")
+
+    location_dir = Path(settings.upload_dir) / location.slug
+    images = list(location.images)
+
+    for image in images:
+        _delete_image_artifacts(db, image)
+
+    for inquiry in list(location.access_inquiries):
+        db.delete(inquiry)
+
+    location.tags = []
+    db.flush()
+    db.delete(location)
+    db.commit()
+
+    if location_dir.exists():
+        shutil.rmtree(location_dir, ignore_errors=True)
+
+    return {"detail": "Location deleted"}

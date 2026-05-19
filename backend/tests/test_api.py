@@ -198,6 +198,35 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 201, body)
         return body
 
+    def upload_location_image(self, token: str, slug: str, title: str, featured: bool = False) -> tuple[int, dict]:
+        return multipart_request(
+            f"/api/locations/{slug}/images",
+            {
+                "title": title,
+                "caption": f"{title} caption",
+                "licensing_available": "true",
+                "featured": "true" if featured else "false",
+                "camera_model": "Nikon Z8",
+                "lens_model": "NIKKOR Z 24-70mm f/2.8",
+                "focal_length": "24mm",
+                "aperture": "f/2.8",
+                "shutter_speed": "1/250",
+                "iso_speed": "200",
+                "white_balance": "Auto",
+                "exposure_compensation": "0",
+                "taken_at": "2025-05-18T10:15",
+                "weather": "Clear",
+                "season": "Spring",
+                "sun_position": "Morning",
+                "camera_direction": "W",
+                "point_of_view": "Eye level",
+                "distance_to_subject": "30 meters",
+                "notes": "Added from pin detail flow.",
+            },
+            [("file", f"{title}.jpg", TINY_JPEG, "image/jpeg")],
+            token=token,
+        )
+
     def test_health_login_and_me(self) -> None:
         status, body = request("GET", "/api/health")
         self.assertEqual(status, 200, body)
@@ -268,6 +297,7 @@ class PhotoScoutAPITests(unittest.TestCase):
 
         status, image_detail = json_request("GET", f"/api/images/{image['id']}")
         self.assertEqual(status, 200, image_detail)
+        self.assertIsNone(image_detail["location_id"])
         self.assertEqual(image_detail["image_metadata"]["camera_model"], "Canon EOS R5")
         self.assertEqual(image_detail["image_metadata"]["season"], "Summer")
 
@@ -298,6 +328,7 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 201, location)
         self.assertEqual(location["street_address"], "123 Test Ave, Los Angeles, CA 90012")
         self.assertEqual(location["zip_code"], "90012")
+        self.assertEqual(location["images"][0]["location_id"], location["id"])
         self.assertEqual(location["images"][0]["featured"], True)
 
         manifest_path = UPLOAD_DIR / location["slug"] / "location.json"
@@ -340,6 +371,7 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 200, profile)
         self.assertEqual(len(profile["created_locations"]), 1)
         self.assertEqual(profile["created_locations"][0]["slug"], location["slug"])
+        self.assertEqual(profile["created_locations"][0]["images"][0]["location_id"], location["id"])
         self.assertTrue(profile["created_locations"][0]["images"][0]["featured"])
         self.assertEqual(profile["created_locations"][0]["images"][0]["title"], "Location thumbnail")
 
@@ -422,6 +454,90 @@ class PhotoScoutAPITests(unittest.TestCase):
         status, profile = json_request("GET", f"/api/profiles/{registered['handle']}")
         self.assertEqual(status, 200, profile)
         self.assertEqual(profile["created_locations"][0]["name"], "Updated Pin")
+
+    def test_owner_can_add_delete_photos_and_delete_location(self) -> None:
+        email = f"pin-{uuid.uuid4().hex[:6]}@example.com"
+        token, _ = self.register_user(email, unique_slug("pin"), "Pin Owner")
+        base_image = self.upload_image(token, "Base location image", featured=True)
+
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            {
+                "name": "Managed Pin",
+                "street_address": "100 Managed St, Los Angeles, CA 90012",
+                "latitude": 34.052235,
+                "longitude": -118.243683,
+                "visibility": "public",
+                "description": "A location for add/delete tests.",
+                "city": "Los Angeles",
+                "region": "CA",
+                "country": "USA",
+                "zip_code": "90012",
+                "tags": ["managed"],
+                "uploaded_image_ids": [base_image["id"]],
+            },
+            token=token,
+        )
+        self.assertEqual(status, 201, location)
+        self.assertEqual(len(location["images"]), 1)
+
+        status, updated = self.upload_location_image(token, location["slug"], "Extra pin photo")
+        self.assertEqual(status, 201, updated)
+        self.assertEqual(len(updated["images"]), 2)
+        self.assertEqual(updated["images"][0]["title"], "Base location image")
+        self.assertEqual(updated["images"][1]["title"], "Extra pin photo")
+        self.assertEqual(updated["images"][1]["image_metadata"]["camera_model"], "Nikon Z8")
+
+        extra_image_id = updated["images"][1]["id"]
+        status, after_delete = json_request(
+            "DELETE",
+            f"/api/locations/{location['slug']}/images/{extra_image_id}",
+            token=token,
+        )
+        self.assertEqual(status, 200, after_delete)
+        self.assertEqual(len(after_delete["images"]), 1)
+        self.assertEqual(after_delete["images"][0]["title"], "Base location image")
+
+        status, deleted = json_request("DELETE", f"/api/locations/{location['slug']}", token=token)
+        self.assertEqual(status, 200, deleted)
+
+        status, missing = json_request("GET", f"/api/locations/{location['slug']}")
+        self.assertEqual(status, 404, missing)
+        self.assertFalse((UPLOAD_DIR / location["slug"]).exists())
+
+    def test_non_owner_cannot_manage_location_photos(self) -> None:
+        owner_email = f"owner-{uuid.uuid4().hex[:6]}@example.com"
+        owner_token, _ = self.register_user(owner_email, unique_slug("owner"), "Owner Test")
+        owner_image = self.upload_image(owner_token, "Owner pin image")
+
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            {
+                "name": "Protected Pin",
+                "latitude": 34.05,
+                "longitude": -118.24,
+                "visibility": "public",
+                "description": "Only the owner should manage this one.",
+                "city": "Los Angeles",
+                "region": "CA",
+                "country": "USA",
+                "zip_code": "90012",
+                "tags": ["protected"],
+                "uploaded_image_ids": [owner_image["id"]],
+            },
+            token=owner_token,
+        )
+        self.assertEqual(status, 201, location)
+
+        intruder_token, _ = self.register_user(
+            f"intruder-{uuid.uuid4().hex[:6]}@example.com",
+            unique_slug("intruder"),
+            "Intruder Test",
+        )
+        status, body = self.upload_location_image(intruder_token, location["slug"], "Forbidden photo")
+        self.assertEqual(status, 403, body)
 
     def test_challenge_vote_toggle(self) -> None:
         submitter_email = f"sam-{uuid.uuid4().hex[:6]}@example.com"

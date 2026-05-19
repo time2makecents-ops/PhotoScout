@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
-import type { DivIcon } from "leaflet";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import type { DivIcon, Map as LeafletMap } from "leaflet";
 import { divIcon, latLngBounds } from "leaflet";
 
 import { getStoredToken } from "@/lib/auth";
@@ -20,7 +21,6 @@ type Props = {
 };
 
 function createPinIcon(kind: "own" | "other" | "current", label: string): DivIcon {
-
   return divIcon({
     className: "photoscout-map-marker",
     html: `<span class="photoscout-map-marker-dot ${kind}"></span><span class="photoscout-map-marker-label">${label}</span>`,
@@ -34,6 +34,7 @@ function PinThumbnail({ location }: { location: Location }) {
   if (!image) {
     return null;
   }
+
   return (
     <div className="map-thumbnail">
       <img src={assetUrl(image.source_url)} alt={image.title} />
@@ -42,39 +43,73 @@ function PinThumbnail({ location }: { location: Location }) {
   );
 }
 
-function FitBounds({ locations, currentLocation }: { locations: Location[]; currentLocation: Point | null }) {
+function MapBehavior({
+  pins,
+  currentLocation,
+  zoom,
+  recenterToken,
+  showAllToken,
+  onReady,
+  onUserInteract
+}: {
+  pins: Location[];
+  currentLocation: Point | null;
+  zoom: number;
+  recenterToken: number;
+  showAllToken: number;
+  onReady: (map: LeafletMap | null) => void;
+  onUserInteract: () => void;
+}) {
   const map = useMap();
 
   useEffect(() => {
-    const points = locations
+    onReady(map);
+    return () => onReady(null);
+  }, [map, onReady]);
+
+  useMapEvents({
+    dragstart: onUserInteract,
+    movestart: onUserInteract,
+    zoomstart: onUserInteract
+  });
+
+  useEffect(() => {
+    map.setZoom(zoom);
+  }, [map, zoom]);
+
+  useEffect(() => {
+    if (!currentLocation) {
+      return;
+    }
+    map.setView([currentLocation.lat, currentLocation.lon], Math.max(map.getZoom(), 12));
+  }, [currentLocation, map]);
+
+  useEffect(() => {
+    if (!recenterToken || !currentLocation) {
+      return;
+    }
+    map.setView([currentLocation.lat, currentLocation.lon], Math.max(map.getZoom(), 13));
+  }, [currentLocation, map, recenterToken]);
+
+  useEffect(() => {
+    if (!showAllToken) {
+      return;
+    }
+    const points = pins
       .filter((location) => typeof location.latitude === "number" && typeof location.longitude === "number")
       .map((location) => [location.latitude as number, location.longitude as number] as [number, number]);
-
-    if (currentLocation) {
-      points.push([currentLocation.lat, currentLocation.lon]);
-    }
 
     if (points.length === 0) {
       return;
     }
 
     if (points.length === 1) {
-      map.setView(points[0], 12);
+      map.setView(points[0], Math.max(map.getZoom(), 12));
       return;
     }
 
     map.fitBounds(latLngBounds(points), { padding: [32, 32] });
-  }, [currentLocation, locations, map]);
-
-  return null;
-}
-
-function ZoomSync({ zoom }: { zoom: number }) {
-  const map = useMap();
-
-  useEffect(() => {
-    map.setZoom(zoom);
-  }, [map, zoom]);
+  }, [map, pins, showAllToken]);
 
   return null;
 }
@@ -83,11 +118,25 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
   const [zoom, setZoom] = useState(12);
   const [currentLocation, setCurrentLocation] = useState<Point | null>(null);
   const [currentHandle, setCurrentHandle] = useState<string | null>(null);
+  const [mapInstance, setMapInstance] = useState<LeafletMap | null>(null);
+  const [recenterToken, setRecenterToken] = useState(0);
+  const [showAllToken, setShowAllToken] = useState(0);
+  const [mapMessage, setMapMessage] = useState<string | null>(null);
+  const userInteractedRef = useRef(false);
+  const requestedLocationRef = useRef(false);
+
+  const firstPin = useMemo(() => {
+    const first = locations.find((location) => typeof location.latitude === "number" && typeof location.longitude === "number");
+    return first ? { lat: first.latitude as number, lon: first.longitude as number } : null;
+  }, [locations]);
+
+  const initialCenter = currentLocation ?? firstPin ?? { lat: 34.05, lon: -118.25 };
 
   useEffect(() => {
-    if (!navigator.geolocation) {
+    if (!navigator.geolocation || requestedLocationRef.current) {
       return;
     }
+    requestedLocationRef.current = true;
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -95,9 +144,11 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
           lat: position.coords.latitude,
           lon: position.coords.longitude
         });
+        setMapMessage(null);
       },
       () => {
         setCurrentLocation(null);
+        setMapMessage("GPS unavailable. Showing the first available pin.");
       },
       { enableHighAccuracy: true, timeout: 7000, maximumAge: 300000 }
     );
@@ -140,16 +191,51 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
     };
   }, []);
 
-  const mapCenter = useMemo(() => {
-    const first = locations.find((location) => typeof location.latitude === "number" && typeof location.longitude === "number");
-    return first ? [first.latitude as number, first.longitude as number] : currentLocation ? [currentLocation.lat, currentLocation.lon] : [34.05, -118.25];
-  }, [currentLocation, locations]);
+  useEffect(() => {
+    if (!mapInstance || !currentLocation || userInteractedRef.current) {
+      return;
+    }
+    mapInstance.setView([currentLocation.lat, currentLocation.lon], Math.max(mapInstance.getZoom(), 12));
+  }, [currentLocation, mapInstance]);
 
   const pins = useMemo(
     () =>
       locations.filter((location) => typeof location.latitude === "number" && typeof location.longitude === "number"),
     [locations]
   );
+
+  async function recenterToMyLocation() {
+    if (!navigator.geolocation) {
+      setMapMessage("This browser does not support GPS location.");
+      return;
+    }
+
+    if (currentLocation && mapInstance) {
+      mapInstance.setView([currentLocation.lat, currentLocation.lon], Math.max(mapInstance.getZoom(), 13));
+      setMapMessage(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const next = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude
+        };
+        setCurrentLocation(next);
+        setMapMessage(null);
+        setRecenterToken((value) => value + 1);
+      },
+      () => {
+        setMapMessage("GPS unavailable. Staying on the current map view.");
+      },
+      { enableHighAccuracy: true, timeout: 7000, maximumAge: 300000 }
+    );
+  }
+
+  function showAllPins() {
+    setShowAllToken((value) => value + 1);
+  }
 
   return (
     <div className={`panel map-panel ${flashMessage ? "map-panel-flash" : ""}`}>
@@ -158,8 +244,15 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
           <span className="eyebrow">Current location map</span>
           <h3>Pins from the live feed</h3>
           {flashMessage ? <p className="map-flash">{flashMessage}</p> : null}
+          {mapMessage ? <p className="subtle">{mapMessage}</p> : null}
         </div>
         <div className="pill-row">
+          <button type="button" className="secondary" onClick={recenterToMyLocation}>
+            {currentLocation ? "Recenter to my location" : "Use my location"}
+          </button>
+          <button type="button" className="secondary" onClick={showAllPins} disabled={!pins.length}>
+            Show all pins
+          </button>
           <button type="button" className="secondary" onClick={() => setZoom((value) => Math.max(4, value - 1))}>
             Zoom out
           </button>
@@ -170,7 +263,7 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
       </div>
       <div className="map-shell">
         <MapContainer
-          center={mapCenter as [number, number]}
+          center={[initialCenter.lat, initialCenter.lon]}
           zoom={zoom}
           scrollWheelZoom
           className="leaflet-map"
@@ -179,8 +272,17 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <ZoomSync zoom={zoom} />
-          <FitBounds locations={pins} currentLocation={currentLocation} />
+          <MapBehavior
+            pins={pins}
+            currentLocation={currentLocation}
+            zoom={zoom}
+            recenterToken={recenterToken}
+            showAllToken={showAllToken}
+            onReady={setMapInstance}
+            onUserInteract={() => {
+              userInteractedRef.current = true;
+            }}
+          />
           {currentLocation ? (
             <CircleMarker
               center={[currentLocation.lat, currentLocation.lon]}
@@ -208,8 +310,17 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
                 <PinThumbnail location={location} />
                 <strong>{location.name}</strong>
                 {location.street_address ? <div>{location.street_address}</div> : null}
-                <div>{location.city}, {location.region}</div>
+                <div>
+                  {location.city}, {location.region}
+                </div>
                 <div>{location.zip_code || "No ZIP"}</div>
+                <Link
+                  href={`/locations/${location.slug}`}
+                  className="button"
+                  style={{ display: "inline-flex", marginTop: "0.75rem" }}
+                >
+                  View pin details
+                </Link>
               </Popup>
             </Marker>
           ))}

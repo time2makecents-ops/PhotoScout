@@ -1,8 +1,12 @@
 import type { Challenge, ChallengeDetail, ImageAsset, Location, Profile, SearchResponse } from "./types";
 import { normalizeErrorDetail } from "./errors";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8010";
 const BROWSER_API_BASE = "";
+
+function getApiBaseUrl() {
+  return typeof window !== "undefined" ? BROWSER_API_BASE : API_BASE_URL;
+}
 
 export function assetUrl(path: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) {
@@ -15,8 +19,7 @@ export function assetUrl(path: string): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const baseUrl = typeof window !== "undefined" ? BROWSER_API_BASE : API_BASE_URL;
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...init,
     cache: "no-store",
     headers: {
@@ -37,8 +40,8 @@ export async function getLocations(): Promise<Location[]> {
   return request<Location[]>("/api/locations");
 }
 
-export async function getLocation(slug: string): Promise<Location> {
-  return request<Location>(`/api/locations/${slug}`);
+export async function getLocation(slug: string, token?: string): Promise<Location> {
+  return request<Location>(`/api/locations/${slug}`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
 }
 
 export async function updateLocation(
@@ -65,6 +68,42 @@ export async function updateLocation(
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload)
   });
+}
+
+export async function addImageToLocation(slug: string, formData: FormData, token: string): Promise<Location> {
+  const response = await fetch(`${getApiBaseUrl()}/api/locations/${slug}/images`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(normalizeErrorDetail(data.detail, `Request failed with status ${response.status}`));
+  }
+  return data as Location;
+}
+
+export async function deleteLocationImage(slug: string, imageId: number, token: string): Promise<Location> {
+  const response = await fetch(`${getApiBaseUrl()}/api/locations/${slug}/images/${imageId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(normalizeErrorDetail(data.detail, `Request failed with status ${response.status}`));
+  }
+  return data as Location;
+}
+
+export async function deleteLocation(slug: string, token: string): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/locations/${slug}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(normalizeErrorDetail(data.detail, `Request failed with status ${response.status}`));
+  }
 }
 
 export async function getProfiles(): Promise<Profile[]> {

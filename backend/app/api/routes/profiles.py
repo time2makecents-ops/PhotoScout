@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
-from app.models import ImageAsset, Profile, User
+from app.models import ImageAsset, Location, Profile, User
 from app.schemas.domain import ProfileRead, ProfileUpdateRequest
 from app.services.auth import get_current_user, get_optional_user
 from app.services.serializers import profile_to_read
@@ -15,6 +15,12 @@ def profile_query():
     return select(Profile).options(
         joinedload(Profile.scout_services),
         joinedload(Profile.user).joinedload(User.images).joinedload(ImageAsset.image_metadata),
+        joinedload(Profile.user)
+        .joinedload(User.locations)
+        .joinedload(Location.images)
+        .joinedload(ImageAsset.image_metadata),
+        joinedload(Profile.user).joinedload(User.locations).joinedload(Location.tags),
+        joinedload(Profile.user).joinedload(User.locations).joinedload(Location.creator).joinedload(User.profile),
     )
 
 

@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
     ]
   },
   async rewrites() {
-    const backendPort = process.env.NEXT_PUBLIC_API_BASE_PORT || "8000";
+    const backendPort = process.env.NEXT_PUBLIC_API_BASE_PORT || "8010";
     return [
       {
         source: "/api/:path*",

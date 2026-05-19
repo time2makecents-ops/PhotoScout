@@ -37,6 +37,7 @@ class ImageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    location_id: int | None = None
     title: str
     caption: str
     source_url: str
@@ -45,4 +46,3 @@ class ImageRead(BaseModel):
     featured: bool
     created_at: datetime
     image_metadata: ImageMetadataRead | None = None
-

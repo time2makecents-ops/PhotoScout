@@ -5,9 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 
 import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/auth";
-import { assetUrl, getCurrentUser, getProfile } from "@/lib/api";
+import { assetUrl, getCurrentUser, getLocations, getProfile } from "@/lib/api";
 import { normalizeErrorDetail } from "@/lib/errors";
-import type { Profile } from "@/lib/types";
+import type { Location, Profile } from "@/lib/types";
 
 function LoginPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +87,7 @@ function ProfileContent() {
   const [isOwnProfile, setIsOwnProfile] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const [fallbackLocations, setFallbackLocations] = useState<Location[]>([]);
   const createdLocations = profile?.created_locations ?? [];
 
   async function loadCurrentProfile(token: string) {
@@ -157,6 +158,24 @@ function ProfileContent() {
 
     void loadByHandle();
   }, [params]);
+
+  useEffect(() => {
+    async function loadFallbackLocations() {
+      if (!profile?.handle || createdLocations.length) {
+        return;
+      }
+      try {
+        const allLocations = await getLocations();
+        setFallbackLocations(allLocations.filter((location) => location.creator_handle === profile.handle));
+      } catch {
+        setFallbackLocations([]);
+      }
+    }
+
+    void loadFallbackLocations();
+  }, [createdLocations.length, profile?.handle]);
+
+  const displayedCreatedLocations = createdLocations.length ? createdLocations : fallbackLocations;
 
   function logout() {
     clearStoredToken();
@@ -294,9 +313,9 @@ function ProfileContent() {
             ) : null}
             <div className="section">
               <h3>Created locations</h3>
-              {createdLocations.length ? (
+              {displayedCreatedLocations.length ? (
                 <div className="cards-3">
-                  {createdLocations.map((location) => (
+                  {displayedCreatedLocations.map((location) => (
                     <Link key={location.id} href={`/locations/${location.slug}`} className="card">
                       {location.images[0] ? (
                         <img className="cover" src={assetUrl(location.images[0].source_url)} alt={location.images[0].title} />
@@ -328,6 +347,9 @@ function ProfileContent() {
                       <img className="cover" src={assetUrl(image.source_url)} alt={image.title} />
                       <h3>{image.title}</h3>
                       <p>{image.caption}</p>
+                      <div className="pill-row">
+                        {image.location_id ? <span className="pill">Attached to pin</span> : <span className="pill">Not tied to a location yet</span>}
+                      </div>
                     </Link>
                   ))}
                 </div>

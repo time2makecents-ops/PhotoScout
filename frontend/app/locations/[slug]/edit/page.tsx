@@ -174,7 +174,7 @@ export default function EditLocationPage() {
       }
 
       try {
-        const [currentUser, currentLocation] = await Promise.all([getCurrentUser(token), getLocation(slug)]);
+        const [currentUser, currentLocation] = await Promise.all([getCurrentUser(token), getLocation(slug, token)]);
         if (!cancelled) {
           const allowed = currentUser.role === "admin" || currentUser.handle === currentLocation.creator_handle;
           setHasAccess(allowed);

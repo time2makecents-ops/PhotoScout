@@ -23,6 +23,11 @@ def create_all() -> None:
     Base.metadata.create_all(bind=engine)
 
 
+def _sqlite_columns(connection, table_name: str) -> set[str]:
+    rows = connection.execute(text(f"PRAGMA table_info({table_name})")).mappings().all()
+    return {row["name"] for row in rows}
+
+
 def ensure_sqlite_compatibility() -> None:
     if not settings.database_url.startswith("sqlite"):
         return
@@ -31,12 +36,12 @@ def ensure_sqlite_compatibility() -> None:
     tables = set(inspector.get_table_names())
     with engine.begin() as connection:
         if "locations" in tables:
-            location_columns = {column["name"] for column in inspector.get_columns("locations")}
+            location_columns = _sqlite_columns(connection, "locations")
             if "street_address" not in location_columns:
                 connection.execute(text("ALTER TABLE locations ADD COLUMN street_address VARCHAR(255) NOT NULL DEFAULT ''"))
             if "zip_code" not in location_columns:
                 connection.execute(text("ALTER TABLE locations ADD COLUMN zip_code VARCHAR(20) NOT NULL DEFAULT ''"))
         if "challenge_votes" in tables:
-            vote_columns = {column["name"] for column in inspector.get_columns("challenge_votes")}
+            vote_columns = _sqlite_columns(connection, "challenge_votes")
             if "direction" not in vote_columns:
                 connection.execute(text("ALTER TABLE challenge_votes ADD COLUMN direction VARCHAR(8) NOT NULL DEFAULT 'up'"))

@@ -35,7 +35,7 @@ export default async function HomePage() {
           <div className="stats">
             <div className="stat">
               <strong>{locations.length}</strong>
-              <span>Seeded locations</span>
+              <span>Live locations</span>
             </div>
             <div className="stat">
               <strong>{profiles.length}</strong>

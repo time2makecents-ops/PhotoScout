@@ -5,11 +5,15 @@ import { useRouter } from "next/navigation";
 
 import { LocationPickerMapClient } from "@/components/location-picker-map-client";
 import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
+import Link from "next/link";
+
 import { markHomeForRefresh } from "@/components/home-refresh-listener";
-import { getStoredToken, setStoredToken } from "@/lib/auth";
+import { clearStoredToken, getStoredToken } from "@/lib/auth";
+import { getCurrentUser, getProfile } from "@/lib/api";
 import { normalizeErrorDetail } from "@/lib/errors";
 
 const steps = ["Confirm map pin", "Name location", "Choose visibility", "Describe location", "Add tags", "Zip code", "Upload photo"];
+const DRAFT_IMAGE_IDS_KEY = "photoscout-location-draft-image-ids";
 
 async function readResponseBody(response: Response) {
   const text = await response.text();
@@ -38,6 +42,33 @@ function extractAddressParts(address: Record<string, string | undefined> | undef
   };
 }
 
+function readDraftImageIds(): number[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(DRAFT_IMAGE_IDS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(Number).filter((id) => Number.isInteger(id)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDraftImageIds(ids: number[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(DRAFT_IMAGE_IDS_KEY, JSON.stringify(ids));
+}
+
+function clearDraftImageIds() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.removeItem(DRAFT_IMAGE_IDS_KEY);
+}
+
 export default function NewLocationPage() {
   const router = useRouter();
   const [uploadedImageIds, setUploadedImageIds] = useState<number[]>([]);
@@ -60,11 +91,62 @@ export default function NewLocationPage() {
   const [uploading, setUploading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const [currentHandle, setCurrentHandle] = useState<string | null>(null);
   const autoLocatedRef = useRef(false);
 
   useEffect(() => {
-    setHasToken(Boolean(getStoredToken()));
+    const draftImageIds = readDraftImageIds();
+    if (draftImageIds.length) {
+      setUploadedImageIds(draftImageIds);
+      setStatus(`Recovered ${draftImageIds.length} uploaded image(s). They will attach to the next location you create.`);
+    }
+
+    const token = getStoredToken();
+    if (!token) {
+      setHasToken(false);
+      setCurrentHandle(null);
+      return;
+    }
+    void getCurrentUser(token)
+      .then((me) => {
+        setHasToken(true);
+        setCurrentHandle(me.handle || null);
+        if (me.handle && !draftImageIds.length) {
+          void restoreUnattachedUploads(me.handle);
+        }
+      })
+      .catch(() => {
+        clearStoredToken();
+        setHasToken(false);
+        setCurrentHandle(null);
+        setStatus("Session expired. Please sign in again.");
+      });
   }, []);
+
+  async function restoreUnattachedUploads(handle: string) {
+    try {
+      const profile = await getProfile(handle);
+      const attachedImageIds = new Set(profile.created_locations.flatMap((location) => location.images.map((image) => image.id)));
+      const unattachedImageIds = profile.uploaded_images
+        .filter((image) => !image.location_id && !attachedImageIds.has(image.id))
+        .map((image) => image.id);
+
+      if (!unattachedImageIds.length) {
+        return;
+      }
+
+      setUploadedImageIds((current) => {
+        if (current.length) {
+          return current;
+        }
+        writeDraftImageIds(unattachedImageIds);
+        setStatus(`Recovered ${unattachedImageIds.length} unattached uploaded image(s). They will attach to the next location you create.`);
+        return unattachedImageIds;
+      });
+    } catch {
+      // A failed recovery should not block normal manual uploads.
+    }
+  }
 
   useEffect(() => {
     if (autoLocatedRef.current || latitude || longitude || !navigator.geolocation) {
@@ -154,26 +236,6 @@ export default function NewLocationPage() {
     }
   }
 
-  async function signInDemoPhotographer() {
-    setStatus("Signing in to the seeded demo photographer account...");
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "maya@photoscout.example.com",
-        password: "password123"
-      })
-    });
-    const data = await readResponseBody(response);
-    if (!response.ok) {
-      setStatus(normalizeErrorDetail(data.detail, "Demo sign-in failed."));
-      return;
-    }
-    setStoredToken(data.token);
-    setHasToken(true);
-    setStatus("Signed in. You can upload a photo and create a location now.");
-  }
-
   async function useCurrentLocation() {
     if (!navigator.geolocation) {
       setStatus("This browser does not support GPS location.");
@@ -256,6 +318,12 @@ export default function NewLocationPage() {
     setUploading(true);
     setStatus("Uploading image...");
     const formData = new FormData(uploadForm);
+    const title = String(formData.get("title") || "").trim();
+    if (!title) {
+      const baseName = locationName.trim() || "PhotoScout location";
+      const uploadKind = uploadForm.dataset.uploadKind;
+      formData.set("title", uploadKind === "area" ? `${baseName} area image` : `${baseName} location photo`);
+    }
     const response = await fetch("/api/uploads/images", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -268,7 +336,11 @@ export default function NewLocationPage() {
       return;
     }
 
-    setUploadedImageIds((current) => (current.includes(data.id) ? current : [...current, data.id]));
+    setUploadedImageIds((current) => {
+      const next = current.includes(data.id) ? current : [...current, data.id];
+      writeDraftImageIds(next);
+      return next;
+    });
     const metadata = data.image_metadata || {};
     setFormValue(uploadForm, "camera_model", metadata.camera_model);
     setFormValue(uploadForm, "lens_model", metadata.lens_model);
@@ -280,7 +352,7 @@ export default function NewLocationPage() {
     setFormValue(uploadForm, "exposure_compensation", metadata.exposure_compensation);
     setFormValue(uploadForm, "taken_at", metadata.taken_at ? new Date(metadata.taken_at).toISOString().slice(0, 16) : null);
     setFormValue(uploadForm, "camera_direction", metadata.camera_direction);
-    setStatus(`Image uploaded successfully. Image ID ${data.id} is ready for this listing.`);
+    setStatus(`Image uploaded successfully. Image ID ${data.id} is ready. Press Create location to save the pin.`);
   }
 
   async function createLocation(event: FormEvent<HTMLFormElement>) {
@@ -336,8 +408,9 @@ export default function NewLocationPage() {
     }
 
     markHomeForRefresh();
+    clearDraftImageIds();
     setStatus(`Location created: ${data.name}`);
-    router.push("/home");
+    router.push(`/locations/${data.slug}`);
   }
 
   return (
@@ -357,15 +430,16 @@ export default function NewLocationPage() {
           <span className="eyebrow">Session</span>
           <h3>{hasToken ? "Authenticated" : "Sign in required"}</h3>
           <p className="subtle">
-            Upload and create actions require an auth token in this phone browser. Use the seeded demo account if needed.
+            Upload and create actions require an auth token in this phone browser.
           </p>
           {!hasToken ? (
-            <button type="button" onClick={signInDemoPhotographer}>
-              Sign in as demo photographer
-            </button>
+            <Link href="/login" className="button">
+              Sign in
+            </Link>
           ) : (
             <div className="pill-row">
               <span className="pill">Ready to upload</span>
+              {currentHandle ? <span className="pill">@{currentHandle}</span> : null}
               {uploadedImageIds.length ? <span className="pill">{uploadedImageIds.length} image(s) ready</span> : null}
             </div>
           )}
@@ -522,7 +596,7 @@ export default function NewLocationPage() {
             {!uploadedImageIds.length ? <p className="subtle">Upload at least one image below to enable location creation.</p> : null}
           </form>
 
-          <form className="form panel" onSubmit={uploadFile}>
+          <form className="form panel" onSubmit={uploadFile} data-upload-kind="area">
             <h3>7. Upload area image</h3>
             <p className="subtle">This is the overview image for the listing. It does not need camera metadata.</p>
             <div className="field">
@@ -531,7 +605,7 @@ export default function NewLocationPage() {
             </div>
             <div className="field">
               <label htmlFor="area-shot-title">Image title</label>
-              <input id="area-shot-title" name="title" required />
+              <input id="area-shot-title" name="title" placeholder={locationName ? `${locationName} area image` : "Area image"} />
             </div>
             <div className="field">
               <label htmlFor="area-shot-caption">Caption</label>
@@ -543,7 +617,7 @@ export default function NewLocationPage() {
             </button>
           </form>
 
-          <form className="form panel" onSubmit={uploadFile}>
+          <form className="form panel" onSubmit={uploadFile} data-upload-kind="location">
             <h3>8. Upload photo from this location</h3>
             <p className="subtle">Use this for a photo captured at the location itself, with full metadata.</p>
             <div className="field">
@@ -552,7 +626,7 @@ export default function NewLocationPage() {
             </div>
             <div className="field">
               <label htmlFor="location-photo-title">Image title</label>
-              <input id="location-photo-title" name="title" required />
+              <input id="location-photo-title" name="title" placeholder={locationName ? `${locationName} location photo` : "Location photo"} />
             </div>
             <div className="field">
               <label htmlFor="location-photo-caption">Caption</label>

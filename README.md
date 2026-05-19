@@ -71,6 +71,12 @@ See [docs/architecture.md](/C:/photoscout/docs/architecture.md) for routing and 
 
 ## Local Setup
 
+### Dedicated Local Ports
+- Frontend: `https://localhost:3003` and `https://172.16.0.44:3003`
+- Backend API: `http://127.0.0.1:8010`
+
+Port `8000` is intentionally not used by PhotoScout so it can remain available for other local apps.
+
 ### Backend
 1. `cd backend`
 2. `python -m venv .venv`
@@ -78,16 +84,22 @@ See [docs/architecture.md](/C:/photoscout/docs/architecture.md) for routing and 
 4. `python -m pip install -r requirements.txt`
 5. `Copy-Item .env.example .env`
 6. `python -m app.seed.seed_demo`
-7. `uvicorn app.main:app --port 8001`
+7. `uvicorn app.main:app --port 8010`
 
 ### Frontend
 1. Open a second terminal
 2. `cd frontend`
 3. `Copy-Item .env.local.example .env.local`
 4. `npm.cmd install`
-5. `npm.cmd run dev`
+5. `npm.cmd run dev -- --hostname 0.0.0.0 --port 3003`
 
-Frontend runs on `http://localhost:3000` and expects the API at `http://localhost:8001`.
+For the phone HTTPS workflow, run this from `C:\photoscout\scripts`:
+
+```powershell
+.\restart-dev.ps1
+```
+
+Frontend runs on `https://localhost:3003` / `https://172.16.0.44:3003` and expects the API at `http://localhost:8010`.
 
 ## Demo Accounts
 - Admin: `admin@photoscout.example.com` / `password123`
