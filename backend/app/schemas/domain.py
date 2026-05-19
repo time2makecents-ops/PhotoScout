@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.schemas.common import ImageRead, TagRead
 
@@ -44,6 +44,7 @@ class ProfileRead(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
+    email: EmailStr | None = None
     display_name: str | None = Field(default=None, min_length=2, max_length=120)
     bio: str | None = None
     base_city: str | None = None

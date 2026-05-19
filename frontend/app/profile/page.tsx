@@ -115,6 +115,7 @@ function ProfileContent() {
   const [isOwnProfile, setIsOwnProfile] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const [currentEmail, setCurrentEmail] = useState("");
   const [fallbackLocations, setFallbackLocations] = useState<Location[]>([]);
   const [editingAvatar, setEditingAvatar] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -147,6 +148,7 @@ function ProfileContent() {
     setLoadingProfile(true);
     try {
       const me = await getCurrentUser(token);
+      setCurrentEmail(me.email || "");
       if (!me.handle) {
         setProfile(null);
         setStatus("Sign in to edit your profile, then create one from the signup screen if needed.");
@@ -162,6 +164,7 @@ function ProfileContent() {
       setIsOwnProfile(true);
     } catch (error) {
       setProfile(null);
+      setCurrentEmail("");
       setStatus(error instanceof Error ? error.message : "Unable to load profile.");
       setIsOwnProfile(false);
     } finally {
@@ -177,6 +180,7 @@ function ProfileContent() {
         void loadCurrentProfile(token);
       } else {
         setProfile(null);
+        setCurrentEmail("");
         setIsOwnProfile(false);
         setStatus("");
       }
@@ -400,9 +404,12 @@ function ProfileContent() {
     }
     const form = new FormData(event.currentTarget);
     const fieldValue = (name: string) => String(form.get(name) ?? "");
+    const nextEmail = fieldValue("email");
+    const emailChanged = nextEmail.trim().toLowerCase() !== currentEmail.trim().toLowerCase();
     try {
       const nextProfile = await updateMyProfile(
         {
+        email: nextEmail,
         display_name: fieldValue("display_name"),
         bio: fieldValue("bio"),
         base_city: fieldValue("base_city"),
@@ -416,6 +423,17 @@ function ProfileContent() {
         token
       );
       setProfile(nextProfile);
+      setCurrentEmail(nextEmail);
+      if (emailChanged) {
+        const shouldRelog = window.confirm("Email updated. You need to log in again with the new email. Log out now?");
+        if (shouldRelog) {
+          logout();
+          router.replace("/login");
+          return;
+        }
+        setStatus("Profile updated. Re-log in with the new email before continuing later.");
+        return;
+      }
       setStatus("Profile updated.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : normalizeErrorDetail(undefined, "Unable to save profile."));
@@ -532,6 +550,11 @@ function ProfileContent() {
             {isOwnProfile ? (
               <form className="form section" onSubmit={saveProfile}>
                 <h3>Edit profile</h3>
+                <div className="field">
+                  <label htmlFor="profile_email">Email</label>
+                  <input id="profile_email" name="email" type="email" autoComplete="email" defaultValue={currentEmail} />
+                  <p className="subtle">This is your sign-in email.</p>
+                </div>
                 <div className="field">
                   <label htmlFor="display_name">Display name</label>
                   <input id="display_name" name="display_name" defaultValue={profile.display_name} />

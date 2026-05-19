@@ -90,7 +90,17 @@ def update_profile(
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    next_email = updates.pop("email", None)
+    if next_email is not None:
+        normalized_email = next_email.lower()
+        existing_user = db.scalar(select(User).where(User.email == normalized_email, User.id != current_user.id))
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        current_user.email = normalized_email
+        db.add(current_user)
+
+    for field, value in updates.items():
         setattr(profile, field, value)
 
     db.add(profile)

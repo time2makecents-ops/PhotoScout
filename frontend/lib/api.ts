@@ -124,6 +124,7 @@ export async function getMyProfile(token: string): Promise<Profile> {
 export async function updateMyProfile(
   payload: {
     display_name?: string;
+    email?: string;
     bio?: string;
     base_city?: string;
     specialties?: string;

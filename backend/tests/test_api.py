@@ -350,6 +350,30 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertTrue(profile["scout_for_hire"])
         self.assertEqual(profile["hourly_rate_note"], "$500/day")
 
+    def test_profile_owner_can_update_email(self) -> None:
+        email = f"profile-email-{uuid.uuid4().hex[:6]}@example.com"
+        token, registered = self.register_user(email, unique_slug("email-owner"), "Email Owner")
+
+        status, updated = json_request(
+            "PATCH",
+            "/api/profiles/me",
+            {
+                "email": f"updated-{uuid.uuid4().hex[:6]}@example.com",
+                "display_name": "Email Owner Updated",
+            },
+            token=token,
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["handle"], registered["handle"])
+
+        status, me = json_request("GET", "/api/auth/me", token=token)
+        self.assertEqual(status, 200, me)
+        self.assertTrue(me["email"].startswith("updated-"))
+
+        login_token, login_body = self.login_user(me["email"])
+        self.assertEqual(login_body["handle"], registered["handle"])
+        self.assertTrue(login_token)
+
     def test_upload_location_bundle_and_profile_images(self) -> None:
         email = f"lena-{uuid.uuid4().hex[:6]}@example.com"
         token, registered = self.register_user(email, unique_slug("lena"), "Lena Test")
