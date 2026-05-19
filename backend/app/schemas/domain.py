@@ -24,10 +24,15 @@ class ProfileRead(BaseModel):
 
     id: int
     handle: str
+    updated_at: datetime
     display_name: str
     bio: str
     base_city: str
     specialties: str
+    avatar_url: str | None = None
+    avatar_position_x: int = 50
+    avatar_position_y: int = 50
+    avatar_scale: float = 1.0
     website_url: str | None = None
     instagram_url: str | None = None
     licensing_available: bool
@@ -43,6 +48,9 @@ class ProfileUpdateRequest(BaseModel):
     bio: str | None = None
     base_city: str | None = None
     specialties: str | None = None
+    avatar_position_x: int | None = Field(default=None, ge=0, le=100)
+    avatar_position_y: int | None = Field(default=None, ge=0, le=100)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     website_url: str | None = None
     instagram_url: str | None = None
     licensing_available: bool | None = None

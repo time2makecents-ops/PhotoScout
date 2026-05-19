@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type Props = {
   idPrefix: string;
+  selectedFile?: File | null;
 };
 
 type GpsStatus = "checking" | "ready" | "unavailable" | "denied";
@@ -12,6 +13,7 @@ type HeadingSource = "sensor" | "manual" | "unavailable";
 
 type ExtendedDeviceOrientationEvent = DeviceOrientationEvent & {
   webkitCompassHeading?: number | null;
+  absolute?: boolean;
 };
 
 type IOSDeviceOrientationEvent = typeof DeviceOrientationEvent & {
@@ -28,6 +30,8 @@ const QUICK_HEADINGS = [
   ["W", 270],
   ["NW", 315]
 ] as const;
+const NON_WEBKIT_COMPASS_OFFSET_DEGREES = 134;
+const MAX_TILT_FOR_HEADING_UPDATES = 60;
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -40,6 +44,81 @@ function formatLocalDateTime(date: Date) {
 function normalizeDegrees(value: number) {
   const normalized = ((value % 360) + 360) % 360;
   return Number(normalized.toFixed(1));
+}
+
+function applyCompassCorrection(value: number) {
+  return normalizeDegrees(value + NON_WEBKIT_COMPASS_OFFSET_DEGREES);
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function radiansToDegrees(value: number) {
+  return (value * 180) / Math.PI;
+}
+
+function computeTiltCompensatedHeading(alpha: number, beta: number, gamma: number) {
+  const x = degreesToRadians(beta);
+  const y = degreesToRadians(gamma);
+  const z = degreesToRadians(alpha);
+
+  const cX = Math.cos(x);
+  const cY = Math.cos(y);
+  const cZ = Math.cos(z);
+  const sX = Math.sin(x);
+  const sY = Math.sin(y);
+  const sZ = Math.sin(z);
+
+  const vX = -cZ * sY - sZ * sX * cY;
+  const vY = -sZ * sY + cZ * sX * cY;
+
+  if (vX === 0 && vY === 0) {
+    return null;
+  }
+
+  let headingRadians = Math.atan(vX / vY);
+  if (vY < 0) {
+    headingRadians += Math.PI;
+  } else if (vX < 0) {
+    headingRadians += 2 * Math.PI;
+  }
+
+  return normalizeDegrees(radiansToDegrees(headingRadians));
+}
+
+function getHeadingFromOrientationEvent(orientationEvent: ExtendedDeviceOrientationEvent) {
+  if (typeof orientationEvent.webkitCompassHeading === "number" && Number.isFinite(orientationEvent.webkitCompassHeading)) {
+    return normalizeDegrees(orientationEvent.webkitCompassHeading);
+  }
+
+  if (typeof orientationEvent.alpha !== "number" || !Number.isFinite(orientationEvent.alpha)) {
+    return null;
+  }
+
+  if (
+    typeof orientationEvent.beta === "number" &&
+    Number.isFinite(orientationEvent.beta) &&
+    typeof orientationEvent.gamma === "number" &&
+    Number.isFinite(orientationEvent.gamma)
+  ) {
+    const compensated = computeTiltCompensatedHeading(
+      orientationEvent.alpha,
+      orientationEvent.beta,
+      orientationEvent.gamma
+    );
+    if (compensated !== null) {
+      return applyCompassCorrection(compensated);
+    }
+  }
+
+  return applyCompassCorrection(360 - orientationEvent.alpha);
+}
+
+function isTiltedTooFarForReliableHeading(orientationEvent: ExtendedDeviceOrientationEvent) {
+  const beta = typeof orientationEvent.beta === "number" && Number.isFinite(orientationEvent.beta) ? Math.abs(orientationEvent.beta) : 0;
+  const gamma = typeof orientationEvent.gamma === "number" && Number.isFinite(orientationEvent.gamma) ? Math.abs(orientationEvent.gamma) : 0;
+  return beta > MAX_TILT_FOR_HEADING_UPDATES || gamma > MAX_TILT_FOR_HEADING_UPDATES;
 }
 
 function headingLabelFromDegrees(value: number | null) {
@@ -70,13 +149,6 @@ function formatDegrees(value: number | null) {
   return `${Math.round(value)} deg`;
 }
 
-function formatSignedDegrees(value: number | null) {
-  if (value === null || Number.isNaN(value)) {
-    return "Not captured";
-  }
-  return `${value.toFixed(1)} deg`;
-}
-
 function statusText(status: GpsStatus | CompassStatus, type: "gps" | "compass") {
   if (type === "gps") {
     switch (status) {
@@ -105,18 +177,19 @@ function statusText(status: GpsStatus | CompassStatus, type: "gps" | "compass") 
   }
 }
 
-export function ShotConditionsCapture({ idPrefix }: Props) {
+export function ShotConditionsCapture({ idPrefix, selectedFile = null }: Props) {
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>("checking");
   const [compassStatus, setCompassStatus] = useState<CompassStatus>("checking");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [capturedAtDevice, setCapturedAtDevice] = useState("");
   const [sensorHeadingDegrees, setSensorHeadingDegrees] = useState<number | null>(null);
-  const [sensorPitchDegrees, setSensorPitchDegrees] = useState<number | null>(null);
-  const [sensorRollDegrees, setSensorRollDegrees] = useState<number | null>(null);
   const [manualHeadingInput, setManualHeadingInput] = useState("");
   const [manualOverrideActive, setManualOverrideActive] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const cleanupOrientationRef = useRef<(() => void) | null>(null);
+  const previousSelectedFileRef = useRef<File | null>(null);
+  const lastStableHeadingRef = useRef<number | null>(null);
 
   const manualHeadingDegrees = useMemo(() => {
     if (!manualHeadingInput) {
@@ -143,6 +216,19 @@ export function ShotConditionsCapture({ idPrefix }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    if (selectedFile && previousSelectedFileRef.current !== selectedFile) {
+      lockConditions();
+    }
+    if (!selectedFile && previousSelectedFileRef.current) {
+      setIsLocked(false);
+      if (compassStatus !== "permission-needed") {
+        startOrientationListener();
+      }
+    }
+    previousSelectedFileRef.current = selectedFile;
+  }, [selectedFile, compassStatus]);
+
   function updateCaptureTime() {
     setCapturedAtDevice(formatLocalDateTime(new Date()));
   }
@@ -156,6 +242,9 @@ export function ShotConditionsCapture({ idPrefix }: Props) {
     setGpsStatus("checking");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (isLocked) {
+          return;
+        }
         setLatitude(Number(position.coords.latitude.toFixed(6)));
         setLongitude(Number(position.coords.longitude.toFixed(6)));
         setGpsStatus("ready");
@@ -187,30 +276,39 @@ export function ShotConditionsCapture({ idPrefix }: Props) {
 
     const handleOrientation = (event: Event) => {
       const orientationEvent = event as ExtendedDeviceOrientationEvent;
-      let nextHeading: number | null = null;
+      const nextHeading = getHeadingFromOrientationEvent(orientationEvent);
+      const tooTilted = isTiltedTooFarForReliableHeading(orientationEvent);
 
-      if (typeof orientationEvent.webkitCompassHeading === "number" && Number.isFinite(orientationEvent.webkitCompassHeading)) {
-        nextHeading = normalizeDegrees(orientationEvent.webkitCompassHeading);
-      } else if (typeof orientationEvent.alpha === "number" && Number.isFinite(orientationEvent.alpha)) {
-        nextHeading = normalizeDegrees(360 - orientationEvent.alpha);
+      if (isLocked) {
+        return;
       }
 
-      const nextPitch = typeof orientationEvent.beta === "number" && Number.isFinite(orientationEvent.beta) ? Number(orientationEvent.beta.toFixed(1)) : null;
-      const nextRoll = typeof orientationEvent.gamma === "number" && Number.isFinite(orientationEvent.gamma) ? Number(orientationEvent.gamma.toFixed(1)) : null;
-
-      setSensorPitchDegrees(nextPitch);
-      setSensorRollDegrees(nextRoll);
-
       if (nextHeading !== null) {
-        setSensorHeadingDegrees(nextHeading);
+        if (!tooTilted || lastStableHeadingRef.current === null) {
+          lastStableHeadingRef.current = nextHeading;
+          setSensorHeadingDegrees(nextHeading);
+        } else {
+          setSensorHeadingDegrees(lastStableHeadingRef.current);
+        }
         setCompassStatus("ready");
-      } else if (nextPitch !== null || nextRoll !== null) {
+      } else {
         setCompassStatus("unavailable");
       }
     };
 
-    window.addEventListener("deviceorientation", handleOrientation, true);
-    cleanupOrientationRef.current = () => window.removeEventListener("deviceorientation", handleOrientation, true);
+    const useAbsoluteListener = "ondeviceorientationabsolute" in window;
+    if (useAbsoluteListener) {
+      window.addEventListener("deviceorientationabsolute", handleOrientation, true);
+    } else {
+      window.addEventListener("deviceorientation", handleOrientation, true);
+    }
+    cleanupOrientationRef.current = () => {
+      if (useAbsoluteListener) {
+        window.removeEventListener("deviceorientationabsolute", handleOrientation, true);
+      } else {
+        window.removeEventListener("deviceorientation", handleOrientation, true);
+      }
+    };
 
     window.setTimeout(() => {
       setCompassStatus((current) => (current === "checking" ? "unavailable" : current));
@@ -262,10 +360,19 @@ export function ShotConditionsCapture({ idPrefix }: Props) {
   }
 
   function refreshConditions() {
+    setIsLocked(false);
+    lastStableHeadingRef.current = null;
     refreshGps();
     if (compassStatus !== "permission-needed") {
       startOrientationListener();
     }
+  }
+
+  function lockConditions() {
+    updateCaptureTime();
+    setIsLocked(true);
+    cleanupOrientationRef.current?.();
+    cleanupOrientationRef.current = null;
   }
 
   function applyManualHeading(value: number) {
@@ -295,6 +402,7 @@ export function ShotConditionsCapture({ idPrefix }: Props) {
       <div className="pill-row">
         <span className="pill">{statusText(gpsStatus, "gps")}</span>
         <span className="pill">{statusText(compassStatus, "compass")}</span>
+        {isLocked ? <span className="pill">Frozen at photo selection</span> : null}
         {headingSource === "sensor" ? <span className="pill">Estimated direction</span> : null}
         {headingSource === "manual" ? <span className="pill">Manual direction</span> : null}
       </div>
@@ -338,8 +446,6 @@ export function ShotConditionsCapture({ idPrefix }: Props) {
         <p className="subtle">GPS: {latitude !== null && longitude !== null ? `${latitude.toFixed(6)}, ${longitude.toFixed(6)}` : "Not captured"}</p>
         <p className="subtle">Device timestamp: {capturedAtDevice ? capturedAtDevice.replace("T", " ") : "Not captured"}</p>
         <p className="subtle">Heading: {formatDegrees(effectiveHeadingDegrees)} {effectiveHeadingLabel ? `(${effectiveHeadingLabel})` : ""}</p>
-        <p className="subtle">Pitch: {formatSignedDegrees(sensorPitchDegrees)}</p>
-        <p className="subtle">Roll: {formatSignedDegrees(sensorRollDegrees)}</p>
       </div>
 
       <input type="hidden" name="gps_latitude" value={latitude !== null ? latitude.toFixed(6) : ""} />
@@ -348,8 +454,8 @@ export function ShotConditionsCapture({ idPrefix }: Props) {
       <input type="hidden" name="camera_heading_degrees" value={effectiveHeadingDegrees !== null ? String(effectiveHeadingDegrees) : ""} />
       <input type="hidden" name="camera_heading_label" value={effectiveHeadingLabel} />
       <input type="hidden" name="camera_direction" value={directionSummary} />
-      <input type="hidden" name="camera_pitch_degrees" value={sensorPitchDegrees !== null ? String(sensorPitchDegrees) : ""} />
-      <input type="hidden" name="camera_roll_degrees" value={sensorRollDegrees !== null ? String(sensorRollDegrees) : ""} />
+      <input type="hidden" name="camera_pitch_degrees" value="" />
+      <input type="hidden" name="camera_roll_degrees" value="" />
       <input type="hidden" name="heading_source" value={headingSource} />
     </div>
   );

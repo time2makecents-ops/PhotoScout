@@ -12,11 +12,25 @@ function getFallbackLabel(profile: Profile | null, email?: string | null) {
   return source.trim().slice(0, 1).toUpperCase();
 }
 
+function avatarDisplayUrl(profile: Profile | null) {
+  const avatarImage = profile?.avatar_url || profile?.uploaded_images?.[0]?.source_url;
+  if (!avatarImage) {
+    return null;
+  }
+  const base = assetUrl(avatarImage);
+  if (!profile?.updated_at) {
+    return base;
+  }
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}v=${encodeURIComponent(profile.updated_at)}`;
+}
+
 export function AccountButton() {
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     setMounted(true);
@@ -26,6 +40,7 @@ export function AccountButton() {
   useEffect(() => {
     function syncToken() {
       setToken(getStoredToken());
+      setRefreshTick((current) => current + 1);
     }
 
     window.addEventListener("photoscout-auth-changed", syncToken);
@@ -70,7 +85,7 @@ export function AccountButton() {
     return () => {
       cancelled = true;
     };
-  }, [mounted, token]);
+  }, [mounted, token, refreshTick]);
 
   if (!mounted || !token) {
     return (
@@ -80,13 +95,20 @@ export function AccountButton() {
     );
   }
 
-  const avatarImage = profile?.uploaded_images?.[0]?.source_url;
+  const avatarImage = avatarDisplayUrl(profile);
   const label = getFallbackLabel(profile, email);
 
   return (
     <Link href="/profile" className="account-button account-button-avatar" aria-label="Open profile settings">
       {avatarImage ? (
-        <img className="account-avatar-image" src={assetUrl(avatarImage)} alt={profile?.display_name || "Profile avatar"} />
+        <img
+          className="account-avatar-image"
+          src={assetUrl(avatarImage)}
+          alt={profile?.display_name || "Profile avatar"}
+          style={{
+            transform: `translate(${(profile?.avatar_position_x ?? 50) - 50}%, ${(profile?.avatar_position_y ?? 50) - 50}%) scale(${profile?.avatar_scale ?? 1})`
+          }}
+        />
       ) : (
         <span className="account-avatar-fallback">{label}</span>
       )}

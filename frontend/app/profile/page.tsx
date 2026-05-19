@@ -2,12 +2,40 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, TouchEvent, useEffect, useMemo, useRef, useState } from "react";
 
+import { PhotoFileInputs } from "@/components/photo-file-inputs";
 import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/auth";
-import { assetUrl, getCurrentUser, getLocations, getMyProfile, getProfile } from "@/lib/api";
+import { assetUrl, getCurrentUser, getLocations, getMyProfile, getProfile, updateMyProfile, uploadProfileAvatar } from "@/lib/api";
 import { normalizeErrorDetail } from "@/lib/errors";
 import type { Location, Profile } from "@/lib/types";
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function touchDistance(
+  first: { clientX: number; clientY: number },
+  second: { clientX: number; clientY: number }
+) {
+  return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+}
+
+function avatarDisplayUrl(profile: Profile | null, previewUrl: string | null) {
+  if (previewUrl) {
+    return previewUrl;
+  }
+  const avatarImage = profile?.avatar_url || profile?.uploaded_images?.[0]?.source_url;
+  if (!avatarImage) {
+    return null;
+  }
+  const base = assetUrl(avatarImage);
+  if (!profile?.updated_at) {
+    return base;
+  }
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}v=${encodeURIComponent(profile.updated_at)}`;
+}
 
 function LoginPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +116,32 @@ function ProfileContent() {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [fallbackLocations, setFallbackLocations] = useState<Location[]>([]);
+  const [editingAvatar, setEditingAvatar] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarPositionX, setAvatarPositionX] = useState(50);
+  const [avatarPositionY, setAvatarPositionY] = useState(50);
+  const [avatarScale, setAvatarScale] = useState(1);
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  const gestureRef = useRef<{
+    mode: "drag" | "pinch" | null;
+    startX: number;
+    startY: number;
+    startDistance: number;
+    originPositionX: number;
+    originPositionY: number;
+    originScale: number;
+  }>({
+    mode: null,
+    startX: 0,
+    startY: 0,
+    startDistance: 0,
+    originPositionX: 50,
+    originPositionY: 50,
+    originScale: 1
+  });
   const createdLocations = profile?.created_locations ?? [];
+  const heroAvatarUrl = useMemo(() => avatarDisplayUrl(profile, avatarPreviewUrl), [avatarPreviewUrl, profile]);
 
   async function loadCurrentProfile(token: string) {
     setLoadingProfile(true);
@@ -102,6 +155,9 @@ function ProfileContent() {
       }
       const nextProfile = await getMyProfile(token);
       setProfile(nextProfile);
+      setAvatarPositionX(nextProfile.avatar_position_x ?? 50);
+      setAvatarPositionY(nextProfile.avatar_position_y ?? 50);
+      setAvatarScale(nextProfile.avatar_scale ?? 1);
       setStatus("");
       setIsOwnProfile(true);
     } catch (error) {
@@ -145,6 +201,7 @@ function ProfileContent() {
       setLoadingProfile(true);
       try {
         setProfile(await getProfile(handle));
+        setAvatarPreviewUrl(null);
         setStatus("");
         setIsOwnProfile(false);
       } catch (error) {
@@ -189,6 +246,152 @@ function ProfileContent() {
     router.replace("/profile");
   }
 
+  useEffect(() => {
+    if (!profile) {
+      return;
+    }
+    setAvatarPositionX(profile.avatar_position_x ?? 50);
+    setAvatarPositionY(profile.avatar_position_y ?? 50);
+    setAvatarScale(profile.avatar_scale ?? 1);
+  }, [profile]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
+
+  useEffect(() => {
+    setAvatarPreviewUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return avatarFile ? URL.createObjectURL(avatarFile) : null;
+    });
+    if (avatarFile) {
+      setAvatarPositionX(50);
+      setAvatarPositionY(50);
+      setAvatarScale(1.15);
+      setStatus("");
+    }
+  }, [avatarFile]);
+
+  function avatarImageStyle() {
+    return {
+      transform: `translate(${avatarPositionX - 50}%, ${avatarPositionY - 50}%) scale(${avatarScale})`
+    };
+  }
+
+  function onAvatarTouchStart(event: TouchEvent<HTMLDivElement>) {
+    if (!heroAvatarUrl) {
+      return;
+    }
+    if (event.touches.length >= 2) {
+      gestureRef.current = {
+        mode: "pinch",
+        startX: 0,
+        startY: 0,
+        startDistance: touchDistance(event.touches[0], event.touches[1]),
+        originPositionX: avatarPositionX,
+        originPositionY: avatarPositionY,
+        originScale: avatarScale
+      };
+      return;
+    }
+    const touch = event.touches[0];
+    gestureRef.current = {
+      mode: "drag",
+      startX: touch.clientX,
+      startY: touch.clientY,
+      startDistance: 0,
+      originPositionX: avatarPositionX,
+      originPositionY: avatarPositionY,
+      originScale: avatarScale
+    };
+  }
+
+  function onAvatarTouchMove(event: TouchEvent<HTMLDivElement>) {
+    if (!heroAvatarUrl) {
+      return;
+    }
+    const frame = event.currentTarget.getBoundingClientRect();
+    const gesture = gestureRef.current;
+    if (event.touches.length >= 2) {
+      event.preventDefault();
+      const nextDistance = touchDistance(event.touches[0], event.touches[1]);
+      const scaleRatio = gesture.startDistance ? nextDistance / gesture.startDistance : 1;
+      const nextScale = clamp(gesture.originScale * scaleRatio, 1, 3);
+      setAvatarScale(nextScale);
+      return;
+    }
+    if (gesture.mode !== "drag") {
+      return;
+    }
+    event.preventDefault();
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - gesture.startX;
+    const deltaY = touch.clientY - gesture.startY;
+    const nextX = clamp(gesture.originPositionX + (deltaX / frame.width) * 100, 0, 100);
+    const nextY = clamp(gesture.originPositionY + (deltaY / frame.height) * 100, 0, 100);
+    setAvatarPositionX(nextX);
+    setAvatarPositionY(nextY);
+  }
+
+  function onAvatarTouchEnd() {
+    gestureRef.current.mode = null;
+  }
+
+  async function saveAvatar() {
+    const token = getStoredToken();
+    if (!token || !profile) {
+      return;
+    }
+    if (!avatarFile && !profile.avatar_url) {
+      setStatus("Choose an avatar image first.");
+      return;
+    }
+
+    setSavingAvatar(true);
+    try {
+      let nextProfile = profile;
+      if (avatarFile) {
+        const formData = new FormData();
+        formData.set("file", avatarFile);
+        formData.set("avatar_position_x", String(avatarPositionX));
+        formData.set("avatar_position_y", String(avatarPositionY));
+        formData.set("avatar_scale", String(avatarScale));
+        nextProfile = await uploadProfileAvatar(formData, token);
+      } else {
+        nextProfile = await updateMyProfile(
+          {
+            avatar_position_x: avatarPositionX,
+            avatar_position_y: avatarPositionY,
+            avatar_scale: avatarScale
+          },
+          token
+        );
+      }
+      setProfile(nextProfile);
+      setEditingAvatar(false);
+      setAvatarFile(null);
+      setAvatarPreviewUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
+        return null;
+      });
+      setStatus("Profile photo updated.");
+      window.dispatchEvent(new Event("photoscout-auth-changed"));
+      router.refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to save profile photo.");
+    } finally {
+      setSavingAvatar(false);
+    }
+  }
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const token = getStoredToken();
@@ -196,31 +399,27 @@ function ProfileContent() {
       return;
     }
     const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/profiles/me", {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        display_name: form.get("display_name"),
-        bio: form.get("bio"),
-        base_city: form.get("base_city"),
-        specialties: form.get("specialties"),
-        website_url: form.get("website_url"),
-        instagram_url: form.get("instagram_url"),
+    const fieldValue = (name: string) => String(form.get(name) ?? "");
+    try {
+      const nextProfile = await updateMyProfile(
+        {
+        display_name: fieldValue("display_name"),
+        bio: fieldValue("bio"),
+        base_city: fieldValue("base_city"),
+        specialties: fieldValue("specialties"),
+        website_url: fieldValue("website_url"),
+        instagram_url: fieldValue("instagram_url"),
         licensing_available: form.get("licensing_available") === "on",
         scout_for_hire: form.get("scout_for_hire") === "on",
-        hourly_rate_note: form.get("hourly_rate_note")
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setStatus(normalizeErrorDetail(data.detail, "Unable to save profile."));
-      return;
+        hourly_rate_note: fieldValue("hourly_rate_note")
+        },
+        token
+      );
+      setProfile(nextProfile);
+      setStatus("Profile updated.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : normalizeErrorDetail(undefined, "Unable to save profile."));
     }
-    setProfile(data);
-    setStatus("Profile updated.");
   }
 
   return (
@@ -241,13 +440,84 @@ function ProfileContent() {
           </>
         ) : (
           <>
-            <p>{profile.bio || "No bio added yet."}</p>
-            <div className="pill-row">
-              <span className="pill">@{profile.handle}</span>
-              <span className="pill">{profile.base_city || "Location not set"}</span>
-              {profile.licensing_available ? <span className="pill">Licensing available</span> : null}
-              {profile.scout_for_hire ? <span className="pill">Scout for hire</span> : null}
+            <div className="profile-hero-card">
+              <div className="profile-hero-avatar-wrap">
+                {heroAvatarUrl ? (
+                  <div className="profile-hero-avatar-frame">
+                    <img
+                      className="profile-hero-avatar-image"
+                      src={heroAvatarUrl}
+                      alt={profile.display_name}
+                      style={avatarImageStyle()}
+                    />
+                  </div>
+                ) : (
+                  <div className="profile-hero-avatar-frame profile-hero-avatar-fallback">
+                    {profile.display_name.trim().slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                {isOwnProfile ? (
+                  <button type="button" className="secondary profile-avatar-edit-button" onClick={() => setEditingAvatar((current) => !current)}>
+                    {editingAvatar ? "Close photo editor" : "Edit profile photo"}
+                  </button>
+                ) : null}
+              </div>
+              <div className="profile-hero-copy">
+                <span className="eyebrow">Profile</span>
+                <h2>{profile.display_name}</h2>
+                <p>{profile.bio || "No bio added yet."}</p>
+                <div className="pill-row">
+                  <span className="pill">@{profile.handle}</span>
+                  <span className="pill">{profile.base_city || "Location not set"}</span>
+                  {profile.licensing_available ? <span className="pill">Licensing available</span> : null}
+                  {profile.scout_for_hire ? <span className="pill">Scout for hire</span> : null}
+                </div>
+              </div>
             </div>
+            {isOwnProfile && editingAvatar ? (
+              <div className="panel section">
+                <h3>Profile photo editor</h3>
+                <PhotoFileInputs idPrefix="profile-avatar" selectedFile={avatarFile} onSelect={setAvatarFile} />
+                <div
+                  className="profile-avatar-editor-preview"
+                  onTouchStart={onAvatarTouchStart}
+                  onTouchMove={onAvatarTouchMove}
+                  onTouchEnd={onAvatarTouchEnd}
+                >
+                  {heroAvatarUrl ? (
+                    <img
+                      className="profile-avatar-editor-image"
+                      src={heroAvatarUrl}
+                      alt={profile.display_name}
+                      style={avatarImageStyle()}
+                    />
+                  ) : (
+                    <div className="profile-hero-avatar-fallback">Choose a photo to preview it here.</div>
+                  )}
+                </div>
+                <div className="pill-row">
+                  <span className="pill">Drag with one finger</span>
+                  <span className="pill">Pinch to zoom</span>
+                  <span className="pill">Zoom {avatarScale.toFixed(2)}x</span>
+                </div>
+                <div className="pill-row" style={{ marginTop: "0.8rem" }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setAvatarPositionX(50);
+                      setAvatarPositionY(50);
+                      setAvatarScale(1);
+                    }}
+                  >
+                    Reset framing
+                  </button>
+                  <button type="button" onClick={() => void saveAvatar()} disabled={savingAvatar}>
+                    {savingAvatar ? "Saving..." : "Save profile photo"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="section">
               <h3>Specialties</h3>
               <p>{profile.specialties || "No specialties added yet."}</p>

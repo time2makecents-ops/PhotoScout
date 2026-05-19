@@ -103,6 +103,7 @@ img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform-origin: center center;
 }
 
 .account-avatar-fallback {
@@ -282,6 +283,60 @@ button.secondary {
 .empty-state {
   border-radius: 1.45rem;
   padding: 1rem;
+}
+
+.profile-hero-card {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+.profile-hero-avatar-wrap {
+  display: grid;
+  gap: 0.8rem;
+  justify-items: start;
+}
+
+.profile-hero-avatar-frame,
+.profile-avatar-editor-preview {
+  width: min(100%, 18rem);
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(33, 63, 58, 0.94), rgba(79, 142, 214, 0.82));
+}
+
+.profile-hero-avatar-image,
+.profile-avatar-editor-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform-origin: center center;
+}
+
+.profile-hero-avatar-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: white;
+  font-size: 4rem;
+  font-weight: 700;
+}
+
+.profile-hero-copy h2 {
+  margin: 0 0 0.65rem;
+  font-size: clamp(2rem, 8vw, 3.1rem);
+}
+
+.profile-avatar-edit-button {
+  width: auto;
+}
+
+.profile-avatar-editor-preview {
+  touch-action: none;
+  margin-top: 0.75rem;
 }
 
 .card h3 {
@@ -555,6 +610,10 @@ textarea {
   .cards-2,
   .panel-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-hero-card {
+    grid-template-columns: 18rem minmax(0, 1fr);
   }
 
   .map-shell {

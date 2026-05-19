@@ -49,10 +49,15 @@ export type Tag = {
 export type Profile = {
   id: number;
   handle: string;
+  updated_at: string;
   display_name: string;
   bio: string;
   base_city: string;
   specialties: string;
+  avatar_url?: string | null;
+  avatar_position_x: number;
+  avatar_position_y: number;
+  avatar_scale: number;
   website_url?: string | null;
   instagram_url?: string | null;
   licensing_available: boolean;

@@ -74,6 +74,19 @@ def can_edit_location(location: Location, current_user: User) -> bool:
     return current_user.id == location.creator_id or current_user.role == "admin"
 
 
+def ensure_single_featured_image(location: Location, keep_image: ImageAsset | None = None) -> None:
+    if keep_image is None:
+        featured_images = sorted(
+            [image for image in location.images if image.featured],
+            key=lambda image: (image.created_at, image.id),
+            reverse=True,
+        )
+        keep_image = featured_images[0] if featured_images else None
+
+    for image in location.images:
+        image.featured = bool(keep_image and image.id == keep_image.id)
+
+
 def get_location_with_relations(db: Session, slug: str) -> Location | None:
     return db.scalar(
         select(Location)
@@ -350,6 +363,7 @@ def create_location(
     db.flush()
     for image in images:
         image.location_id = location.id
+    ensure_single_featured_image(location)
     write_location_bundle(location, images)
     db.commit()
 
@@ -409,6 +423,9 @@ async def add_location_image(
     destination = Path(settings.upload_dir) / storage_key
     destination.write_bytes(image_bytes)
 
+    if featured:
+        ensure_single_featured_image(location, None)
+
     image = ImageAsset(
         uploader_id=current_user.id,
         location=location,
@@ -451,6 +468,8 @@ async def add_location_image(
     image.image_metadata = metadata
     db.add_all([image, metadata])
     db.flush()
+    if featured:
+        ensure_single_featured_image(location, image)
     write_location_bundle(location, list(location.images))
     db.commit()
 

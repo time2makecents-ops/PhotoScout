@@ -298,7 +298,7 @@ export function LocationDetailClient({ initialLocation }: Props) {
                 <input type="checkbox" name="featured" /> Featured on pin
               </label>
             </div>
-            <ShotConditionsCapture idPrefix="pin-detail-photo" />
+            <ShotConditionsCapture idPrefix="pin-detail-photo" selectedFile={selectedPhotoFile} />
             <PhotoMetadataFields prefix="location-photo" showCameraDirection={false} />
             <button type="submit" disabled={addingPhoto}>
               {addingPhoto ? "Uploading..." : "Add photo"}

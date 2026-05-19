@@ -63,6 +63,16 @@ def ensure_sqlite_compatibility() -> None:
                 connection.execute(text("ALTER TABLE image_metadata ADD COLUMN camera_roll_degrees FLOAT"))
             if "heading_source" not in metadata_columns:
                 connection.execute(text("ALTER TABLE image_metadata ADD COLUMN heading_source VARCHAR(20)"))
+        if "profiles" in tables:
+            profile_columns = _sqlite_columns(connection, "profiles")
+            if "avatar_url" not in profile_columns:
+                connection.execute(text("ALTER TABLE profiles ADD COLUMN avatar_url VARCHAR(255)"))
+            if "avatar_position_x" not in profile_columns:
+                connection.execute(text("ALTER TABLE profiles ADD COLUMN avatar_position_x INTEGER NOT NULL DEFAULT 50"))
+            if "avatar_position_y" not in profile_columns:
+                connection.execute(text("ALTER TABLE profiles ADD COLUMN avatar_position_y INTEGER NOT NULL DEFAULT 50"))
+            if "avatar_scale" not in profile_columns:
+                connection.execute(text("ALTER TABLE profiles ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0"))
         if "challenge_votes" in tables:
             vote_columns = _sqlite_columns(connection, "challenge_votes")
             if "direction" not in vote_columns:

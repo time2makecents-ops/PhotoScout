@@ -12,10 +12,13 @@ export function assetUrl(path: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path;
   }
-  if (typeof window !== "undefined") {
-    return `${BROWSER_API_BASE}${path}`;
+  if (path.startsWith("/")) {
+    return path;
   }
-  return `${API_BASE_URL}${path}`;
+  if (typeof window !== "undefined") {
+    return `${BROWSER_API_BASE}/${path}`.replace(/([^:]\/)\/+/g, "$1");
+  }
+  return `/${path}`.replace(/([^:]\/)\/+/g, "$1");
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -116,6 +119,43 @@ export async function getProfile(handle: string): Promise<Profile> {
 
 export async function getMyProfile(token: string): Promise<Profile> {
   return request<Profile>("/api/profiles/me", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export async function updateMyProfile(
+  payload: {
+    display_name?: string;
+    bio?: string;
+    base_city?: string;
+    specialties?: string;
+    avatar_position_x?: number;
+    avatar_position_y?: number;
+    avatar_scale?: number;
+    website_url?: string;
+    instagram_url?: string;
+    licensing_available?: boolean;
+    scout_for_hire?: boolean;
+    hourly_rate_note?: string;
+  },
+  token: string
+): Promise<Profile> {
+  return request<Profile>("/api/profiles/me", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function uploadProfileAvatar(formData: FormData, token: string): Promise<Profile> {
+  const response = await fetch(`${getApiBaseUrl()}/api/profiles/me/avatar`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(normalizeErrorDetail(data.detail, `Request failed with status ${response.status}`));
+  }
+  return data as Profile;
 }
 
 export async function getChallenges(): Promise<Challenge[]> {

@@ -273,6 +273,48 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(profile["handle"], registered["handle"])
         self.assertEqual(profile["display_name"], "Handle Test")
         self.assertEqual(profile["created_locations"], [])
+        self.assertEqual(profile["avatar_position_x"], 50)
+        self.assertEqual(profile["avatar_position_y"], 50)
+        self.assertEqual(profile["avatar_scale"], 1.0)
+
+    def test_profile_avatar_upload_and_position_save(self) -> None:
+        email = f"avatar-{uuid.uuid4().hex[:6]}@example.com"
+        token, registered = self.register_user(email, unique_slug("avatar"), "Avatar Test")
+
+        status, profile = multipart_request(
+            "/api/profiles/me/avatar",
+            {
+                "avatar_position_x": "32",
+                "avatar_position_y": "68",
+                "avatar_scale": "1.7",
+            },
+            [("file", "avatar.jpg", TINY_JPEG, "image/jpeg")],
+            token=token,
+        )
+        self.assertEqual(status, 201, profile)
+        self.assertEqual(profile["handle"], registered["handle"])
+        self.assertTrue(profile["avatar_url"].startswith("/uploads/profiles/"))
+        self.assertEqual(profile["avatar_position_x"], 32)
+        self.assertEqual(profile["avatar_position_y"], 68)
+        self.assertEqual(profile["avatar_scale"], 1.7)
+
+        avatar_path = UPLOAD_DIR / profile["avatar_url"].removeprefix("/uploads/")
+        self.assertTrue(avatar_path.exists())
+
+        status, updated = json_request(
+            "PATCH",
+            "/api/profiles/me",
+            {
+                "avatar_position_x": 20,
+                "avatar_position_y": 80,
+                "avatar_scale": 1.3,
+            },
+            token=token,
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["avatar_position_x"], 20)
+        self.assertEqual(updated["avatar_position_y"], 80)
+        self.assertEqual(updated["avatar_scale"], 1.3)
 
     def test_register_creates_profile_details(self) -> None:
         email = f"profile-{uuid.uuid4().hex[:6]}@example.com"
@@ -512,20 +554,22 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(len(location["images"]), 1)
         self.assertEqual(location["images"][0]["image_role"], "area_image")
 
-        status, updated = self.upload_location_image(token, location["slug"], "Extra pin photo")
+        status, updated = self.upload_location_image(token, location["slug"], "Extra pin photo", featured=True)
         self.assertEqual(status, 201, updated)
         self.assertEqual(len(updated["images"]), 2)
-        self.assertEqual(updated["images"][0]["title"], "Base location image")
-        self.assertEqual(updated["images"][1]["title"], "Extra pin photo")
-        self.assertEqual(updated["images"][1]["image_role"], "location_photo")
-        self.assertEqual(updated["images"][1]["image_metadata"]["gps_latitude"], 34.052235)
-        self.assertEqual(updated["images"][1]["image_metadata"]["camera_heading_degrees"], 225.0)
-        self.assertEqual(updated["images"][1]["image_metadata"]["camera_heading_label"], "SW")
-        self.assertEqual(updated["images"][1]["image_metadata"]["heading_source"], "manual")
-        self.assertEqual(updated["images"][1]["image_metadata"]["camera_direction"], "Manual: 225 SW")
-        self.assertEqual(updated["images"][1]["image_metadata"]["camera_model"], "Nikon Z8")
+        self.assertEqual(updated["images"][0]["title"], "Extra pin photo")
+        self.assertTrue(updated["images"][0]["featured"])
+        self.assertEqual(updated["images"][0]["image_role"], "location_photo")
+        self.assertEqual(updated["images"][0]["image_metadata"]["gps_latitude"], 34.052235)
+        self.assertEqual(updated["images"][0]["image_metadata"]["camera_heading_degrees"], 225.0)
+        self.assertEqual(updated["images"][0]["image_metadata"]["camera_heading_label"], "SW")
+        self.assertEqual(updated["images"][0]["image_metadata"]["heading_source"], "manual")
+        self.assertEqual(updated["images"][0]["image_metadata"]["camera_direction"], "Manual: 225 SW")
+        self.assertEqual(updated["images"][0]["image_metadata"]["camera_model"], "Nikon Z8")
+        self.assertEqual(updated["images"][1]["title"], "Base location image")
+        self.assertFalse(updated["images"][1]["featured"])
 
-        extra_image_id = updated["images"][1]["id"]
+        extra_image_id = updated["images"][0]["id"]
         status, after_delete = json_request(
             "DELETE",
             f"/api/locations/{location['slug']}/images/{extra_image_id}",

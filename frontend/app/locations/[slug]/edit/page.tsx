@@ -11,16 +11,14 @@ import { normalizeErrorDetail } from "@/lib/errors";
 import type { Location } from "@/lib/types";
 
 type AddressParts = {
-  streetAddress?: string;
   zipCode?: string;
   city?: string;
   region?: string;
   country?: string;
 };
 
-function extractAddressParts(address: Record<string, string | undefined> | undefined, displayName?: string): AddressParts {
+function extractAddressParts(address: Record<string, string | undefined> | undefined): AddressParts {
   return {
-    streetAddress: displayName?.trim() || undefined,
     zipCode: address?.postcode,
     city: address?.city || address?.town || address?.village || address?.hamlet || address?.suburb,
     region: address?.state || address?.region || address?.county,
@@ -64,9 +62,6 @@ export default function EditLocationPage() {
   }
 
   function applyAddressParts(parts: AddressParts) {
-    if (parts.streetAddress) {
-      setStreetAddress(parts.streetAddress);
-    }
     if (parts.zipCode) {
       setZipCode(parts.zipCode);
       setMapZipCode(parts.zipCode);
@@ -96,7 +91,7 @@ export default function EditLocationPage() {
       if (!response.ok || !data?.address) {
         return;
       }
-      applyAddressParts(extractAddressParts(data.address as Record<string, string | undefined>, data.display_name));
+      applyAddressParts(extractAddressParts(data.address as Record<string, string | undefined>));
     } finally {
       setResolvingPlace(false);
     }
@@ -152,7 +147,7 @@ export default function EditLocationPage() {
       const nextLongitude = String(Number(place.lon).toFixed(6));
       updateCoordinates(nextLatitude, nextLongitude);
       setZipCode(place.address?.postcode || trimmed);
-      applyAddressParts(extractAddressParts(place.address as Record<string, string | undefined>, place.display_name));
+      applyAddressParts(extractAddressParts(place.address as Record<string, string | undefined>));
       setStatus(`ZIP code ${trimmed} placed on the map.`);
     } finally {
       setGeocodingZip(false);
@@ -353,6 +348,7 @@ export default function EditLocationPage() {
               onChange={(event) => setStreetAddress(event.target.value)}
               placeholder="123 Main St, Los Angeles, CA 90012"
             />
+            <p className="subtle">Optional. Saved exactly as entered. GPS, ZIP, and the map will fill city and ZIP, but not the exact address.</p>
           </div>
           <div className="field">
             <label htmlFor="visibility">Visibility</label>
