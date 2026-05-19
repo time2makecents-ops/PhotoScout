@@ -51,6 +51,106 @@ function splitBaseLocation(value: string) {
   };
 }
 
+function tileParts(latitude: number, longitude: number, zoom = 15) {
+  const scale = 2 ** zoom;
+  const latRadians = (latitude * Math.PI) / 180;
+  const x = ((longitude + 180) / 360) * scale;
+  const y =
+    ((1 - Math.log(Math.tan(latRadians) + 1 / Math.cos(latRadians)) / Math.PI) / 2) * scale;
+
+  const tileX = Math.floor(x);
+  const tileY = Math.floor(y);
+  return {
+    zoom,
+    tileX,
+    tileY,
+    leftPercent: (x - tileX) * 100,
+    topPercent: (y - tileY) * 100
+  };
+}
+
+function LocationMapPreview({ location }: { location: Location }) {
+  if (typeof location.latitude !== "number" || typeof location.longitude !== "number") {
+    return (
+      <div className="profile-location-map-fallback">
+        <span className="pill">Map preview unavailable</span>
+      </div>
+    );
+  }
+
+  const tile = tileParts(location.latitude, location.longitude);
+  const mapUrl = `https://tile.openstreetmap.org/${tile.zoom}/${tile.tileX}/${tile.tileY}.png`;
+
+  return (
+    <div className="profile-location-map-preview">
+      <img className="profile-location-map-image" src={mapUrl} alt={`Map preview for ${location.name}`} />
+      <span className="profile-location-map-pin" />
+      <span className="profile-location-map-badge">Pin preview</span>
+    </div>
+  );
+}
+
+function CreatedLocationCard({ location }: { location: Location }) {
+  const [imageIndex, setImageIndex] = useState(0);
+  const image = location.images[imageIndex] ?? location.images[0] ?? null;
+  const imageTitle = image?.title || image?.caption || "Location image";
+
+  useEffect(() => {
+    setImageIndex(0);
+  }, [location.id]);
+
+  return (
+    <div className="card">
+      <h3>{location.name}</h3>
+      {image ? (
+        <div className="map-thumbnail map-thumbnail-carousel profile-location-carousel">
+          <img className="cover" src={assetUrl(image.source_url)} alt={imageTitle} />
+          {location.images.length > 1 ? (
+            <>
+              <button
+                type="button"
+                className="map-image-arrow map-image-arrow-left"
+                onClick={() => setImageIndex((current) => (current - 1 + location.images.length) % location.images.length)}
+                aria-label="Previous location image"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className="map-image-arrow map-image-arrow-right"
+                onClick={() => setImageIndex((current) => (current + 1) % location.images.length)}
+                aria-label="Next location image"
+              >
+                ›
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {image ? <strong>{imageTitle}</strong> : null}
+      {location.images.length > 1 ? (
+        <p className="subtle" style={{ marginTop: "-0.15rem", marginBottom: "0.35rem" }}>
+          {imageIndex + 1} of {location.images.length}
+        </p>
+      ) : null}
+      <p>{location.street_address || location.description}</p>
+      <div className="pill-row">
+        <span className="pill">{location.visibility}</span>
+        {location.zip_code ? <span className="pill">{location.zip_code}</span> : null}
+        {location.tags.slice(0, 2).map((tag) => (
+          <span key={tag.id} className="pill">
+            {tag.name}
+          </span>
+        ))}
+      </div>
+      <LocationMapPreview location={location} />
+      <Link href={`/locations/${location.slug}`} className="button" style={{ display: "inline-flex", marginTop: "0.85rem" }}>
+        View location
+      </Link>
+    </div>
+  );
+}
+
 function LoginPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -642,45 +742,11 @@ function ProfileContent() {
               {displayedCreatedLocations.length ? (
                 <div className="cards-3">
                   {displayedCreatedLocations.map((location) => (
-                    <Link key={location.id} href={`/locations/${location.slug}`} className="card">
-                      {location.images[0] ? (
-                        <img className="cover" src={assetUrl(location.images[0].source_url)} alt={location.images[0].title} />
-                      ) : null}
-                      <h3>{location.name}</h3>
-                      <p>{location.street_address || location.description}</p>
-                      <div className="pill-row">
-                        <span className="pill">{location.visibility}</span>
-                        {location.zip_code ? <span className="pill">{location.zip_code}</span> : null}
-                        {location.tags.slice(0, 2).map((tag) => (
-                          <span key={tag.id} className="pill">
-                            {tag.name}
-                          </span>
-                        ))}
-                      </div>
-                    </Link>
+                    <CreatedLocationCard key={location.id} location={location} />
                   ))}
                 </div>
               ) : (
                 <p className="subtle">No created locations yet.</p>
-              )}
-            </div>
-            <div className="section">
-              <h3>Uploaded images</h3>
-              {profile.uploaded_images.length ? (
-                <div className="cards-3">
-                  {profile.uploaded_images.map((image) => (
-                    <Link key={image.id} href={`/images/${image.id}`} className="card">
-                      <img className="cover" src={assetUrl(image.source_url)} alt={image.title} />
-                      <h3>{image.title}</h3>
-                      <p>{image.caption}</p>
-                      <div className="pill-row">
-                        {image.location_id ? <span className="pill">Attached to pin</span> : <span className="pill">Not tied to a location yet</span>}
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <p className="subtle">No uploaded images yet.</p>
               )}
             </div>
                 </>

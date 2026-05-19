@@ -339,6 +339,61 @@ button.secondary {
   margin-top: 0.75rem;
 }
 
+.profile-location-map-preview {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  margin-bottom: 0.9rem;
+  background: linear-gradient(180deg, rgba(33, 63, 58, 0.1), rgba(79, 142, 214, 0.16));
+}
+
+.profile-location-map-image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.profile-location-map-pin {
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #4f8ed6;
+  border: 2px solid white;
+  box-shadow: 0 0 0 0.35rem rgba(79, 142, 214, 0.18);
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.profile-location-map-badge {
+  position: absolute;
+  left: 0.7rem;
+  bottom: 0.7rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.profile-location-map-fallback {
+  display: grid;
+  place-items: center;
+  min-height: 11rem;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  margin-bottom: 0.9rem;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.profile-location-carousel .cover {
+  margin-bottom: 0;
+}
+
 .card h3 {
   margin: 0 0 0.45rem;
   font-size: 1.2rem;

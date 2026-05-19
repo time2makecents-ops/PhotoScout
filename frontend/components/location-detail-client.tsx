@@ -93,8 +93,11 @@ export function LocationDetailClient({ initialLocation }: Props) {
   const [deletingLocation, setDeletingLocation] = useState(false);
   const [deletingImageId, setDeletingImageId] = useState<number | null>(null);
   const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
+  const [heroImageIndex, setHeroImageIndex] = useState(0);
 
   const canManage = Boolean(viewer && (viewer.role === "admin" || viewer.handle === location.creator_handle));
+  const heroImage = location.images[heroImageIndex] ?? location.images[0] ?? null;
+  const heroImageTitle = heroImage?.title || heroImage?.caption || "Location image";
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +147,10 @@ export function LocationDetailClient({ initialLocation }: Props) {
       window.removeEventListener("storage", syncViewer);
     };
   }, [initialLocation.slug]);
+
+  useEffect(() => {
+    setHeroImageIndex(0);
+  }, [location.id, location.images.length]);
 
   const photoCount = location.images.length;
 
@@ -239,6 +246,37 @@ export function LocationDetailClient({ initialLocation }: Props) {
         <div className="panel">
           <span className="eyebrow">{location.visibility} listing</span>
           <h2>{location.name}</h2>
+          {heroImage ? (
+            <div className="map-thumbnail map-thumbnail-carousel profile-location-carousel" style={{ marginTop: "1rem" }}>
+              <img className="cover" src={assetUrl(heroImage.source_url)} alt={heroImageTitle} />
+              {location.images.length > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    className="map-image-arrow map-image-arrow-left"
+                    onClick={() => setHeroImageIndex((current) => (current - 1 + location.images.length) % location.images.length)}
+                    aria-label="Previous location image"
+                  >
+                    {"<"}
+                  </button>
+                  <button
+                    type="button"
+                    className="map-image-arrow map-image-arrow-right"
+                    onClick={() => setHeroImageIndex((current) => (current + 1) % location.images.length)}
+                    aria-label="Next location image"
+                  >
+                    {">"}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {heroImage ? <strong>{heroImageTitle}</strong> : null}
+          {location.images.length > 1 ? (
+            <p className="subtle" style={{ marginTop: "0.35rem", marginBottom: "0.6rem" }}>
+              {heroImageIndex + 1} of {location.images.length}
+            </p>
+          ) : null}
           <p>{location.description}</p>
           <div className="pill-row">
             <span className="pill">Pinned by {location.creator_name}</span>

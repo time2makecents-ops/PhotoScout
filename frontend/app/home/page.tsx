@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { FeaturedLocationCard } from "@/components/featured-location-card";
 import { HomeLocationMap } from "@/components/home-location-map";
 import { HireableContact } from "@/components/hireable-contact";
 import { HomeRefreshListener } from "@/components/home-refresh-listener";
@@ -78,22 +79,7 @@ export default async function HomePage() {
         />
         <div className="cards-3">
           {featuredLocations.map((location) => (
-            <Link key={location.id} href={`/locations/${location.slug}`} className="card">
-              {location.images[0] ? (
-                <img className="cover" src={assetUrl(location.images[0].source_url)} alt={location.images[0].title} />
-              ) : null}
-              <h3>{location.name}</h3>
-              <p>{location.description}</p>
-              <div className="pill-row">
-                <span className="pill">{location.visibility}</span>
-                {location.zip_code ? <span className="pill">{location.zip_code}</span> : null}
-                {location.tags.slice(0, 2).map((tag) => (
-                  <span key={tag.id} className="pill">
-                    {tag.name}
-                  </span>
-                ))}
-              </div>
-            </Link>
+            <FeaturedLocationCard key={location.id} location={location} />
           ))}
         </div>
       </section>
