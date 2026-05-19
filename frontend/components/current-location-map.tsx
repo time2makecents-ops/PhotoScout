@@ -302,7 +302,7 @@ export function CurrentLocationMap({ locations, flashMessage }: Props) {
               position={[location.latitude as number, location.longitude as number]}
               icon={createPinIcon(
                 currentHandle && location.creator_handle === currentHandle ? "own" : "other",
-                location.images[0]?.title || location.name
+                location.name
               )}
               zIndexOffset={currentHandle && location.creator_handle === currentHandle ? 2000 : 1000}
             >

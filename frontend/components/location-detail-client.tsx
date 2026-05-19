@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { PrivateLocationContact } from "@/components/private-location-contact";
+import { PhotoFileInputs } from "@/components/photo-file-inputs";
 import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
 import {
   addImageToLocation,
@@ -72,6 +73,7 @@ export function LocationDetailClient({ initialLocation }: Props) {
   const [addingPhoto, setAddingPhoto] = useState(false);
   const [deletingLocation, setDeletingLocation] = useState(false);
   const [deletingImageId, setDeletingImageId] = useState<number | null>(null);
+  const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
 
   const canManage = Boolean(viewer && (viewer.role === "admin" || viewer.handle === location.creator_handle));
 
@@ -140,9 +142,16 @@ export function LocationDetailClient({ initialLocation }: Props) {
 
     setAddingPhoto(true);
     try {
-      const updated = await addImageToLocation(location.slug, new FormData(event.currentTarget), token);
+      if (!selectedPhotoFile) {
+        setStatus("Take a photo or choose a photo first.");
+        return;
+      }
+      const formData = new FormData(event.currentTarget);
+      formData.set("file", selectedPhotoFile);
+      const updated = await addImageToLocation(location.slug, formData, token);
       setLocation(updated);
       event.currentTarget.reset();
+      setSelectedPhotoFile(null);
       setStatus("Photo added to this pin.");
       router.refresh();
     } catch (error) {
@@ -255,10 +264,7 @@ export function LocationDetailClient({ initialLocation }: Props) {
           <h3>Attach a new image</h3>
           <p className="subtle">Upload another photo that belongs to this location and save its metadata with the pin.</p>
           <form className="form" onSubmit={onAddPhoto}>
-            <div className="field">
-              <label htmlFor="location-photo-file">Image file</label>
-              <input id="location-photo-file" name="file" type="file" accept="image/*" required />
-            </div>
+            <PhotoFileInputs idPrefix="pin-detail-photo" selectedFile={selectedPhotoFile} onSelect={setSelectedPhotoFile} />
             <div className="field">
               <label htmlFor="location-photo-title">Image title</label>
               <input id="location-photo-title" name="title" required />

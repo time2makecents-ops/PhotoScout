@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 
 import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/auth";
-import { assetUrl, getCurrentUser, getLocations, getProfile } from "@/lib/api";
+import { assetUrl, getCurrentUser, getLocations, getMyProfile, getProfile } from "@/lib/api";
 import { normalizeErrorDetail } from "@/lib/errors";
 import type { Location, Profile } from "@/lib/types";
 
@@ -100,7 +100,7 @@ function ProfileContent() {
         setIsOwnProfile(false);
         return;
       }
-      const nextProfile = await getProfile(me.handle);
+      const nextProfile = await getMyProfile(token);
       setProfile(nextProfile);
       setStatus("");
       setIsOwnProfile(true);
@@ -161,7 +161,7 @@ function ProfileContent() {
 
   useEffect(() => {
     async function loadFallbackLocations() {
-      if (!profile?.handle || createdLocations.length) {
+      if (!profile?.handle) {
         return;
       }
       try {
@@ -175,7 +175,10 @@ function ProfileContent() {
     void loadFallbackLocations();
   }, [createdLocations.length, profile?.handle]);
 
-  const displayedCreatedLocations = createdLocations.length ? createdLocations : fallbackLocations;
+  const displayedCreatedLocations = [
+    ...createdLocations,
+    ...fallbackLocations.filter((location) => !createdLocations.some((createdLocation) => createdLocation.id === location.id))
+  ];
 
   function logout() {
     clearStoredToken();

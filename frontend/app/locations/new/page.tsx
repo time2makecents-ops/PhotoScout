@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 
 import { LocationPickerMapClient } from "@/components/location-picker-map-client";
 import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
+import { PhotoFileInputs } from "@/components/photo-file-inputs";
 import Link from "next/link";
 
 import { markHomeForRefresh } from "@/components/home-refresh-listener";
 import { clearStoredToken, getStoredToken } from "@/lib/auth";
 import { getCurrentUser, getProfile } from "@/lib/api";
 import { normalizeErrorDetail } from "@/lib/errors";
+import type { ImageAsset } from "@/lib/types";
 
 const steps = ["Confirm map pin", "Name location", "Choose visibility", "Describe location", "Add tags", "Zip code", "Upload photo"];
 const DRAFT_IMAGE_IDS_KEY = "photoscout-location-draft-image-ids";
@@ -92,6 +94,11 @@ export default function NewLocationPage() {
   const [creating, setCreating] = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [currentHandle, setCurrentHandle] = useState<string | null>(null);
+  const [recoverableImages, setRecoverableImages] = useState<ImageAsset[]>([]);
+  const [selectedUploadFiles, setSelectedUploadFiles] = useState<Record<string, File | null>>({
+    area: null,
+    location: null
+  });
   const autoLocatedRef = useRef(false);
 
   useEffect(() => {
@@ -111,7 +118,7 @@ export default function NewLocationPage() {
       .then((me) => {
         setHasToken(true);
         setCurrentHandle(me.handle || null);
-        if (me.handle && !draftImageIds.length) {
+        if (me.handle) {
           void restoreUnattachedUploads(me.handle);
         }
       })
@@ -127,25 +134,28 @@ export default function NewLocationPage() {
     try {
       const profile = await getProfile(handle);
       const attachedImageIds = new Set(profile.created_locations.flatMap((location) => location.images.map((image) => image.id)));
-      const unattachedImageIds = profile.uploaded_images
-        .filter((image) => !image.location_id && !attachedImageIds.has(image.id))
-        .map((image) => image.id);
+      const unattachedImages = profile.uploaded_images.filter((image) => !image.location_id && !attachedImageIds.has(image.id));
 
-      if (!unattachedImageIds.length) {
+      if (!unattachedImages.length) {
+        setRecoverableImages([]);
         return;
       }
 
-      setUploadedImageIds((current) => {
-        if (current.length) {
-          return current;
-        }
-        writeDraftImageIds(unattachedImageIds);
-        setStatus(`Recovered ${unattachedImageIds.length} unattached uploaded image(s). They will attach to the next location you create.`);
-        return unattachedImageIds;
-      });
+      setRecoverableImages(unattachedImages);
+      if (!readDraftImageIds().length) {
+        setStatus(`${unattachedImages.length} previous unattached upload(s) are available below. Select only the ones that belong to this new location.`);
+      }
     } catch {
       // A failed recovery should not block normal manual uploads.
     }
+  }
+
+  function toggleRecoveredImage(imageId: number, selected: boolean) {
+    setUploadedImageIds((current) => {
+      const next = selected ? [...new Set([...current, imageId])] : current.filter((id) => id !== imageId);
+      writeDraftImageIds(next);
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -318,10 +328,17 @@ export default function NewLocationPage() {
     setUploading(true);
     setStatus("Uploading image...");
     const formData = new FormData(uploadForm);
+    const uploadKind = uploadForm.dataset.uploadKind === "location" ? "location" : "area";
+    const selectedFile = selectedUploadFiles[uploadKind];
+    if (!selectedFile) {
+      setUploading(false);
+      setStatus("Take a photo or choose a photo first.");
+      return;
+    }
+    formData.set("file", selectedFile);
     const title = String(formData.get("title") || "").trim();
     if (!title) {
       const baseName = locationName.trim() || "PhotoScout location";
-      const uploadKind = uploadForm.dataset.uploadKind;
       formData.set("title", uploadKind === "area" ? `${baseName} area image` : `${baseName} location photo`);
     }
     const response = await fetch("/api/uploads/images", {
@@ -341,6 +358,7 @@ export default function NewLocationPage() {
       writeDraftImageIds(next);
       return next;
     });
+    setSelectedUploadFiles((current) => ({ ...current, [uploadKind]: null }));
     const metadata = data.image_metadata || {};
     setFormValue(uploadForm, "camera_model", metadata.camera_model);
     setFormValue(uploadForm, "lens_model", metadata.lens_model);
@@ -596,13 +614,34 @@ export default function NewLocationPage() {
             {!uploadedImageIds.length ? <p className="subtle">Upload at least one image below to enable location creation.</p> : null}
           </form>
 
+          {recoverableImages.length ? (
+            <div className="form panel">
+              <h3>Previous unattached uploads</h3>
+              <p className="subtle">These photos were uploaded earlier but not tied to a pin. Select only photos that belong to this new location.</p>
+              {recoverableImages.map((image) => (
+                <label key={image.id} className="card">
+                  <input
+                    type="checkbox"
+                    checked={uploadedImageIds.includes(image.id)}
+                    onChange={(event) => toggleRecoveredImage(image.id, event.target.checked)}
+                  />{" "}
+                  {image.title}
+                  <span className="subtle" style={{ display: "block" }}>
+                    {image.caption || "No caption"}
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : null}
+
           <form className="form panel" onSubmit={uploadFile} data-upload-kind="area">
             <h3>7. Upload area image</h3>
             <p className="subtle">This is the overview image for the listing. It does not need camera metadata.</p>
-            <div className="field">
-              <label htmlFor="area-shot-file">Image file</label>
-              <input id="area-shot-file" name="file" type="file" accept="image/*" required />
-            </div>
+            <PhotoFileInputs
+              idPrefix="area-shot"
+              selectedFile={selectedUploadFiles.area}
+              onSelect={(file) => setSelectedUploadFiles((current) => ({ ...current, area: file }))}
+            />
             <div className="field">
               <label htmlFor="area-shot-title">Image title</label>
               <input id="area-shot-title" name="title" placeholder={locationName ? `${locationName} area image` : "Area image"} />
@@ -620,10 +659,11 @@ export default function NewLocationPage() {
           <form className="form panel" onSubmit={uploadFile} data-upload-kind="location">
             <h3>8. Upload photo from this location</h3>
             <p className="subtle">Use this for a photo captured at the location itself, with full metadata.</p>
-            <div className="field">
-              <label htmlFor="location-photo-file">Image file</label>
-              <input id="location-photo-file" name="file" type="file" accept="image/*" required />
-            </div>
+            <PhotoFileInputs
+              idPrefix="location-photo"
+              selectedFile={selectedUploadFiles.location}
+              onSelect={(file) => setSelectedUploadFiles((current) => ({ ...current, location: file }))}
+            />
             <div className="field">
               <label htmlFor="location-photo-title">Image title</label>
               <input id="location-photo-title" name="title" placeholder={locationName ? `${locationName} location photo` : "Location photo"} />
