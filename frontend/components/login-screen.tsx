@@ -58,7 +58,7 @@ export function LoginScreen() {
       return;
     }
 
-    setStoredToken(data.token);
+    setStoredToken(data.token, form.get("remember") === "on");
     router.push("/home");
   }
 
@@ -71,12 +71,16 @@ export function LoginScreen() {
         <form className="form" onSubmit={onSubmit}>
           <div className="field">
             <label htmlFor="email">Email</label>
-            <input id="email" name="email" type="email" autoComplete="email" required />
+            <input id="email" name="email" type="email" autoComplete="username" required />
           </div>
           <div className="field">
             <label htmlFor="password">Password</label>
             <input id="password" name="password" type="password" autoComplete="current-password" required />
           </div>
+          <label className="checkbox-field">
+            <input name="remember" type="checkbox" defaultChecked /> Keep me signed in on this device
+          </label>
+          <p className="subtle">Your password stays with your browser&apos;s password manager. PhotoScout saves only a session token.</p>
           {error ? <p className="status">{error}</p> : null}
           <button type="submit">{loading ? "Signing in..." : "Sign in"}</button>
         </form>

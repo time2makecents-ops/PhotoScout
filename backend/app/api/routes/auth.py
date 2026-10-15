@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +12,31 @@ from app.schemas.auth import AuthResponse, LoginRequest, MeResponse, RegisterReq
 from app.services.auth import get_current_user
 
 router = APIRouter()
+
+
+@router.post("/guest", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+def create_guest_session(db: Session = Depends(get_db)) -> AuthResponse:
+    """Create a local testing identity so the app remains usable without a login screen."""
+    suffix = uuid4().hex[:12]
+    user = User(
+        email=f"local-{suffix}@guest.photoscout.local",
+        password_hash=hash_password(uuid4().hex),
+        role="photographer",
+    )
+    profile = Profile(
+        user=user,
+        handle=f"local-tester-{suffix}",
+        display_name="Local tester",
+        bio="",
+        base_city="",
+        specialties="",
+    )
+    raw_token, token_hash, expires_at = issue_session_token()
+    session = AuthSession(user=user, token_hash=token_hash, expires_at=expires_at)
+    db.add_all([user, profile, session])
+    db.commit()
+    db.refresh(user)
+    return AuthResponse(token=raw_token, user_id=user.id, role=user.role, handle=profile.handle)
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)

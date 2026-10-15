@@ -12,6 +12,8 @@ export function PhotoFileInputs({ idPrefix, selectedFile, onSelect }: Props) {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const deviceInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedSource, setSelectedSource] = useState<"camera" | "device" | null>(null);
+  const [selectionError, setSelectionError] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedFile) {
@@ -26,9 +28,38 @@ export function PhotoFileInputs({ idPrefix, selectedFile, onSelect }: Props) {
     }
   }, [selectedFile]);
 
+  useEffect(() => {
+    if (!selectedFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const nextPreviewUrl = URL.createObjectURL(selectedFile);
+    setPreviewUrl(nextPreviewUrl);
+    return () => URL.revokeObjectURL(nextPreviewUrl);
+  }, [selectedFile]);
+
   function selectFile(source: "camera" | "device", file: File | null) {
+    if (!file) {
+      onSelect(null);
+      setSelectedSource(null);
+      return;
+    }
+    const isSupportedType = ["image/jpeg", "image/png", "image/webp"].includes(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name);
+    if (!isSupportedType) {
+      onSelect(null);
+      setSelectedSource(null);
+      setSelectionError("Choose a JPG, PNG, or WebP image.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      onSelect(null);
+      setSelectedSource(null);
+      setSelectionError("Choose an image smaller than 10 MB.");
+      return;
+    }
     onSelect(file);
-    setSelectedSource(file ? source : null);
+    setSelectedSource(source);
+    setSelectionError("");
     const otherInput = source === "camera" ? deviceInputRef.current : cameraInputRef.current;
     if (otherInput) {
       otherInput.value = "";
@@ -45,7 +76,7 @@ export function PhotoFileInputs({ idPrefix, selectedFile, onSelect }: Props) {
             ref={cameraInputRef}
             id={`${idPrefix}-camera-file`}
             type="file"
-            accept="image/*"
+            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
             capture="environment"
             onChange={(event) => selectFile("camera", event.target.files?.[0] ?? null)}
           />
@@ -56,7 +87,7 @@ export function PhotoFileInputs({ idPrefix, selectedFile, onSelect }: Props) {
             ref={deviceInputRef}
             id={`${idPrefix}-device-file`}
             type="file"
-            accept="image/*"
+            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
             onChange={(event) => selectFile("device", event.target.files?.[0] ?? null)}
           />
         </div>
@@ -67,6 +98,9 @@ export function PhotoFileInputs({ idPrefix, selectedFile, onSelect }: Props) {
       <p className="subtle">
         Selected file: {selectedFile ? selectedFile.name : "None selected"}
       </p>
+      {selectedFile ? <p className="subtle">Ready to upload: {(selectedFile.size / 1024 / 1024).toFixed(1)} MB</p> : null}
+      {previewUrl ? <img className="upload-preview" src={previewUrl} alt="Selected upload preview" /> : null}
+      {selectionError ? <p className="status" role="alert">{selectionError}</p> : null}
     </div>
   );
 }

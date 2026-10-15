@@ -29,6 +29,8 @@ export type ImageAsset = {
   id: number;
   location_id?: number | null;
   image_role: string;
+  image_source_type: "original_raw" | "original_edited" | "royalty_free_reference";
+  source_note: string;
   title: string;
   caption: string;
   source_url: string;
@@ -98,6 +100,30 @@ export type Location = {
 };
 
 export type ProfileLocation = Location;
+
+export type Board = {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  locations: Location[];
+};
+
+export type FieldDevice = {
+  id: number;
+  name: string;
+  platform: string;
+  created_at: string;
+  last_seen_at?: string | null;
+  revoked_at?: string | null;
+};
+
+export type FieldPairingRequest = {
+  pairing_payload: string;
+  api_base_url: string;
+  expires_at: string;
+};
 
 export type ChallengeSubmission = {
   id: number;

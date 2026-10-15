@@ -179,6 +179,35 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         return body["token"], body
 
+    def pair_field_device(self, token: str, name: str = "Field phone") -> tuple[str, dict]:
+        status, pairing = json_request("POST", "/api/field-devices/pairing-requests", token=token)
+        self.assertEqual(status, 201, pairing)
+        pairing_payload = json.loads(pairing["pairing_payload"])
+        status, paired = json_request(
+            "POST",
+            "/api/field-devices/pair",
+            {
+                "pairing_secret": pairing_payload["pairing_secret"],
+                "name": name,
+                "platform": "android",
+            },
+        )
+        self.assertEqual(status, 200, paired)
+        return paired["device_token"], paired
+
+    def sync_field_capture(
+        self,
+        device_token: str,
+        manifest: dict,
+        photos: list[tuple[str, bytes]] | None = None,
+    ) -> tuple[int, dict]:
+        return multipart_request(
+            "/api/field-sync/captures",
+            {"manifest": json.dumps(manifest)},
+            [("files", name, content, "image/jpeg") for name, content in (photos or [])],
+            token=device_token,
+        )
+
     def upload_image(self, token: str, title: str, featured: bool = False, image_role: str = "general") -> dict:
         status, body = multipart_request(
             "/api/uploads/images",
@@ -206,6 +235,21 @@ class PhotoScoutAPITests(unittest.TestCase):
         )
         self.assertEqual(status, 201, body)
         return body
+
+    def create_location_payload(self, name: str, uploaded_image_ids: list[int] | None = None) -> dict:
+        return {
+            "name": name,
+            "latitude": 44.0521,
+            "longitude": -123.0868,
+            "visibility": "public",
+            "description": "A documented location that can be saved before photographs are available.",
+            "city": "Eugene",
+            "region": "OR",
+            "country": "USA",
+            "zip_code": "97401",
+            "tags": ["test"],
+            "uploaded_image_ids": uploaded_image_ids or [],
+        }
 
     def upload_location_image(self, token: str, slug: str, title: str, featured: bool = False) -> tuple[int, dict]:
         return multipart_request(
@@ -263,6 +307,15 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(me["handle"], registered["handle"])
         self.assertTrue(token)
         self.assertTrue(login_token)
+
+    def test_guest_session_can_use_authenticated_routes(self) -> None:
+        status, guest = json_request("POST", "/api/auth/guest")
+        self.assertEqual(status, 201, guest)
+        self.assertEqual(guest["role"], "photographer")
+
+        status, me = json_request("GET", "/api/auth/me", token=guest["token"])
+        self.assertEqual(status, 200, me)
+        self.assertTrue(me["email"].endswith("@guest.photoscout.local"))
 
     def test_profile_lookup_by_handle_still_works(self) -> None:
         email = f"handle-{uuid.uuid4().hex[:6]}@example.com"
@@ -383,6 +436,8 @@ class PhotoScoutAPITests(unittest.TestCase):
         self.assertEqual(status, 200, image_detail)
         self.assertIsNone(image_detail["location_id"])
         self.assertEqual(image_detail["image_role"], "area_image")
+        self.assertEqual(image_detail["image_source_type"], "original_edited")
+        self.assertEqual(image_detail["source_note"], "")
         self.assertEqual(image_detail["image_metadata"]["gps_latitude"], 34.10101)
         self.assertEqual(image_detail["image_metadata"]["gps_longitude"], -118.20202)
         self.assertEqual(image_detail["image_metadata"]["camera_heading_degrees"], 238.0)
@@ -432,6 +487,289 @@ class PhotoScoutAPITests(unittest.TestCase):
             f"{location['slug']}/{Path(image['source_url']).name}",
         )
         self.assertEqual(manifest["images"][0]["image_role"], "area_image")
+        self.assertEqual(manifest["images"][0]["image_source_type"], "original_edited")
+
+    def test_can_create_pin_without_a_photo(self) -> None:
+        email = f"pin-only-{uuid.uuid4().hex[:6]}@example.com"
+        token, _ = self.register_user(email, unique_slug("pin-only"), "Pin Only")
+
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            self.create_location_payload("Eugene Airport reference pin"),
+            token=token,
+        )
+        self.assertEqual(status, 201, location)
+        self.assertEqual(location["images"], [])
+        self.assertTrue((UPLOAD_DIR / location["slug"] / "location.json").exists())
+
+    def test_saved_locations_are_idempotent_and_removable(self) -> None:
+        email = f"saved-{uuid.uuid4().hex[:6]}@example.com"
+        token, _ = self.register_user(email, unique_slug("saved"), "Saved Location Tester")
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            self.create_location_payload("Saved riverside location"),
+            token=token,
+        )
+        self.assertEqual(status, 201, location)
+
+        status, saved = json_request("POST", f"/api/saved-locations/{location['id']}", token=token)
+        self.assertEqual(status, 200, saved)
+        self.assertEqual(saved["id"], location["id"])
+        status, _ = json_request("POST", f"/api/saved-locations/{location['id']}", token=token)
+        self.assertEqual(status, 200)
+
+        status, state = json_request("GET", f"/api/saved-locations/{location['id']}", token=token)
+        self.assertEqual(status, 200, state)
+        self.assertTrue(state["saved"])
+        status, saved_locations = json_request("GET", "/api/saved-locations", token=token)
+        self.assertEqual(status, 200, saved_locations)
+        self.assertEqual([item["id"] for item in saved_locations], [location["id"]])
+
+        status, _ = json_request("DELETE", f"/api/saved-locations/{location['id']}", token=token)
+        self.assertEqual(status, 204)
+        status, saved_locations = json_request("GET", "/api/saved-locations", token=token)
+        self.assertEqual(status, 200, saved_locations)
+        self.assertEqual(saved_locations, [])
+
+    def test_boards_group_saved_locations_and_enforce_ownership(self) -> None:
+        email = f"boards-{uuid.uuid4().hex[:6]}@example.com"
+        token, _ = self.register_user(email, unique_slug("boards"), "Board Tester")
+        other_token, _ = self.register_user(
+            f"other-board-{uuid.uuid4().hex[:6]}@example.com",
+            unique_slug("other-board"),
+            "Other Board Tester",
+        )
+        status, location = json_request(
+            "POST",
+            "/api/locations",
+            self.create_location_payload("Board location"),
+            token=token,
+        )
+        self.assertEqual(status, 201, location)
+
+        status, board = json_request(
+            "POST",
+            "/api/boards",
+            {"name": "Fall campaign", "description": "Exterior options for the client."},
+            token=token,
+        )
+        self.assertEqual(status, 201, board)
+        self.assertEqual(board["locations"], [])
+
+        status, rejected = json_request(
+            "POST",
+            f"/api/boards/{board['id']}/locations/{location['id']}",
+            token=token,
+        )
+        self.assertEqual(status, 400, rejected)
+
+        status, _ = json_request("POST", f"/api/saved-locations/{location['id']}", token=token)
+        self.assertEqual(status, 200)
+        status, populated = json_request(
+            "POST",
+            f"/api/boards/{board['id']}/locations/{location['id']}",
+            token=token,
+        )
+        self.assertEqual(status, 200, populated)
+        self.assertEqual([item["id"] for item in populated["locations"]], [location["id"]])
+
+        status, idempotent = json_request(
+            "POST",
+            f"/api/boards/{board['id']}/locations/{location['id']}",
+            token=token,
+        )
+        self.assertEqual(status, 200, idempotent)
+        self.assertEqual(len(idempotent["locations"]), 1)
+
+        status, hidden = json_request("GET", f"/api/boards/{board['id']}", token=other_token)
+        self.assertEqual(status, 404, hidden)
+
+        status, _ = json_request("DELETE", f"/api/saved-locations/{location['id']}", token=token)
+        self.assertEqual(status, 204)
+        status, cleaned = json_request("GET", f"/api/boards/{board['id']}", token=token)
+        self.assertEqual(status, 200, cleaned)
+        self.assertEqual(cleaned["locations"], [])
+
+        status, _ = json_request("DELETE", f"/api/boards/{board['id']}", token=token)
+        self.assertEqual(status, 204)
+        status, boards = json_request("GET", "/api/boards", token=token)
+        self.assertEqual(status, 200, boards)
+        self.assertEqual(boards, [])
+
+    def test_reference_image_requires_source_note_and_is_labeled(self) -> None:
+        email = f"reference-{uuid.uuid4().hex[:6]}@example.com"
+        token, _ = self.register_user(email, unique_slug("reference"), "Reference Tester")
+        status, rejected = multipart_request(
+            "/api/uploads/images",
+            {"title": "Reference", "image_source_type": "royalty_free_reference"},
+            [("file", "reference.jpg", TINY_JPEG, "image/jpeg")],
+            token=token,
+        )
+        self.assertEqual(status, 400, rejected)
+
+        status, image = multipart_request(
+            "/api/uploads/images",
+            {
+                "title": "Airport exterior reference",
+                "image_source_type": "royalty_free_reference",
+                "source_note": "Unsplash reference image for location orientation.",
+                "licensing_available": "true",
+            },
+            [("file", "reference.jpg", TINY_JPEG, "image/jpeg")],
+            token=token,
+        )
+        self.assertEqual(status, 201, image)
+        self.assertEqual(image["image_source_type"], "royalty_free_reference")
+        self.assertEqual(image["source_note"], "Unsplash reference image for location orientation.")
+        self.assertFalse(image["licensing_available"])
+
+    def test_field_pairing_sync_is_idempotent_and_revocable(self) -> None:
+        email = f"field-{uuid.uuid4().hex[:6]}@example.com"
+        token, _ = self.register_user(email, unique_slug("field"), "Field Tester")
+        device_token, paired = self.pair_field_device(token)
+
+        status, devices = json_request("GET", "/api/field-devices", token=token)
+        self.assertEqual(status, 200, devices)
+        self.assertEqual(devices[0]["id"], paired["device_id"])
+        self.assertNotIn("token_hash", devices[0])
+
+        capture_id = str(uuid.uuid4())
+        manifest = {
+            "version": 1,
+            "client_capture_id": capture_id,
+            "name": "Offline river access",
+            "notes": "Quiet river access with a clear western view.",
+            "tags": ["river", "golden-hour"],
+            "visibility": "private",
+            "latitude": 44.0521,
+            "longitude": -123.0868,
+            "accuracy_meters": 7.4,
+            "heading_degrees": 270,
+            "city": "Eugene",
+            "region": "OR",
+            "country": "USA",
+            "zip_code": "97401",
+            "photos": [
+                {"client_photo_id": "area-1", "title": "River approach", "image_role": "area_image"},
+                {"client_photo_id": "detail-1", "title": "Western view", "image_role": "location_photo"},
+            ],
+        }
+        status, receipt = self.sync_field_capture(
+            device_token,
+            manifest,
+            [("area.jpg", TINY_JPEG), ("detail.jpg", TINY_JPEG)],
+        )
+        self.assertEqual(status, 201, receipt)
+        self.assertEqual(receipt["image_count"], 2)
+
+        status, repeated = self.sync_field_capture(device_token, manifest)
+        self.assertEqual(status, 201, repeated)
+        self.assertEqual(repeated["receipt_id"], receipt["receipt_id"])
+        self.assertEqual(repeated["location_id"], receipt["location_id"])
+
+        status, location = json_request("GET", f"/api/locations/{receipt['slug']}", token=token)
+        self.assertEqual(status, 200, location)
+        self.assertEqual(location["visibility"], "private")
+        self.assertEqual([image["image_role"] for image in location["images"]], ["area_image", "location_photo"])
+        self.assertTrue(location["images"][0]["featured"])
+        self.assertEqual(location["images"][0]["image_source_type"], "original_edited")
+
+        other_token, _ = self.register_user(
+            f"field-other-{uuid.uuid4().hex[:6]}@example.com",
+            unique_slug("field-other"),
+            "Other Field Tester",
+        )
+        other_device_token, _ = self.pair_field_device(other_token, "Other phone")
+        status, hidden = json_request("GET", f"/api/field-sync/captures/{capture_id}", token=other_device_token)
+        self.assertEqual(status, 404, hidden)
+
+        status, _ = json_request("DELETE", f"/api/field-devices/{paired['device_id']}", token=token)
+        self.assertEqual(status, 204)
+        status, revoked = json_request("GET", f"/api/field-sync/captures/{capture_id}", token=device_token)
+        self.assertEqual(status, 401, revoked)
+
+    def test_field_pairing_is_one_use_and_expires(self) -> None:
+        token, _ = self.register_user(
+            f"field-pair-{uuid.uuid4().hex[:6]}@example.com",
+            unique_slug("field-pair"),
+            "Pairing Tester",
+        )
+        status, pairing = json_request("POST", "/api/field-devices/pairing-requests", token=token)
+        self.assertEqual(status, 201, pairing)
+        secret = json.loads(pairing["pairing_payload"])["pairing_secret"]
+        pair_body = {"pairing_secret": secret, "name": "One use", "platform": "ios"}
+        status, _ = json_request("POST", "/api/field-devices/pair", pair_body)
+        self.assertEqual(status, 200)
+        status, reused = json_request("POST", "/api/field-devices/pair", pair_body)
+        self.assertEqual(status, 400, reused)
+
+        status, expired_pairing = json_request("POST", "/api/field-devices/pairing-requests", token=token)
+        self.assertEqual(status, 201, expired_pairing)
+        expired_secret = json.loads(expired_pairing["pairing_payload"])["pairing_secret"]
+        with sqlite3.connect(DB_PATH) as connection:
+            connection.execute(
+                "UPDATE field_pairing_requests SET expires_at = ? WHERE used_at IS NULL",
+                ((datetime.now(UTC) - timedelta(minutes=1)).replace(tzinfo=None).isoformat(timespec="seconds"),),
+            )
+            connection.commit()
+        status, expired = json_request(
+            "POST",
+            "/api/field-devices/pair",
+            {"pairing_secret": expired_secret, "name": "Expired", "platform": "android"},
+        )
+        self.assertEqual(status, 400, expired)
+
+    def test_field_sync_accepts_pin_only_and_rejects_invalid_packages(self) -> None:
+        token, _ = self.register_user(
+            f"field-validation-{uuid.uuid4().hex[:6]}@example.com",
+            unique_slug("field-validation"),
+            "Field Validation",
+        )
+        device_token, _ = self.pair_field_device(token)
+        base_manifest = {
+            "version": 1,
+            "client_capture_id": str(uuid.uuid4()),
+            "name": "Offline pin",
+            "notes": "A complete pin recorded while the server was away.",
+            "tags": ["offline"],
+            "visibility": "public",
+            "latitude": 34.0522,
+            "longitude": -118.2437,
+            "photos": [],
+        }
+        status, pin_only = self.sync_field_capture(device_token, base_manifest)
+        self.assertEqual(status, 201, pin_only)
+        self.assertEqual(pin_only["image_count"], 0)
+
+        invalid_roles = dict(base_manifest)
+        invalid_roles["client_capture_id"] = str(uuid.uuid4())
+        invalid_roles["photos"] = [
+            {"client_photo_id": "one", "title": "One", "image_role": "area_image"},
+            {"client_photo_id": "two", "title": "Two", "image_role": "area_image"},
+        ]
+        status, invalid = self.sync_field_capture(
+            device_token,
+            invalid_roles,
+            [("one.jpg", TINY_JPEG), ("two.jpg", TINY_JPEG)],
+        )
+        self.assertEqual(status, 422, invalid)
+
+        mismatch = dict(base_manifest)
+        mismatch["client_capture_id"] = str(uuid.uuid4())
+        mismatch["photos"] = [{"client_photo_id": "missing", "title": "Missing", "image_role": "location_photo"}]
+        status, missing = self.sync_field_capture(device_token, mismatch)
+        self.assertEqual(status, 400, missing)
+
+        oversized = dict(mismatch)
+        oversized["client_capture_id"] = str(uuid.uuid4())
+        status, too_large = self.sync_field_capture(
+            device_token,
+            oversized,
+            [("large.jpg", b"x" * (10 * 1024 * 1024 + 1))],
+        )
+        self.assertEqual(status, 413, too_large)
 
     def test_profile_includes_created_locations(self) -> None:
         email = f"profile-locations-{uuid.uuid4().hex[:6]}@example.com"

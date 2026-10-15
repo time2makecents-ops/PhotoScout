@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, TouchEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { PhotoFileInputs } from "@/components/photo-file-inputs";
+import { FieldAppPanel } from "@/components/field-app-panel";
 import { clearStoredToken, getStoredToken, setStoredToken } from "@/lib/auth";
 import { assetUrl, getCurrentUser, getLocations, getMyProfile, getProfile, updateMyProfile, uploadProfileAvatar } from "@/lib/api";
 import { normalizeErrorDetail } from "@/lib/errors";
@@ -723,6 +724,7 @@ function ProfileContent() {
                 {status ? <p className="status">{status}</p> : null}
               </form>
             ) : null}
+            {isOwnProfile && getStoredToken() ? <FieldAppPanel token={getStoredToken() || ""} /> : null}
             {profile.scout_services.length ? (
               <div className="cards-2">
                 {profile.scout_services.map((service) => (

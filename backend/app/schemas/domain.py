@@ -73,7 +73,7 @@ class LocationCreateRequest(BaseModel):
     approximate_latitude: float | None = None
     approximate_longitude: float | None = None
     tags: list[str] = Field(min_length=1)
-    uploaded_image_ids: list[int] = Field(min_length=1)
+    uploaded_image_ids: list[int] = Field(default_factory=list)
 
 
 class LocationUpdateRequest(BaseModel):
@@ -115,6 +115,25 @@ class LocationRead(BaseModel):
 
 class ProfileLocationRead(LocationRead):
     pass
+
+
+class BoardCreateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    description: str = Field(default="", max_length=500)
+
+
+class BoardUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class BoardRead(BaseModel):
+    id: int
+    name: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
+    locations: list[LocationRead] = Field(default_factory=list)
 
 
 class ChallengeRead(BaseModel):

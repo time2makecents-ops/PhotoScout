@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import admin, auth, challenges, images, inquiries, locations, profiles, search, uploads
+from app.api.routes import admin, auth, boards, challenges, field_devices, field_sync, images, inquiries, locations, map_tiles, profiles, saved_locations, search, uploads
 from app.core.config import settings
 from app.db.session import create_all, ensure_sqlite_compatibility
 
@@ -33,6 +33,11 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(map_tiles.router, prefix="/api/map-tiles", tags=["map"])
+app.include_router(saved_locations.router, prefix="/api/saved-locations", tags=["saved locations"])
+app.include_router(boards.router, prefix="/api/boards", tags=["boards"])
+app.include_router(field_devices.router, prefix="/api/field-devices", tags=["field devices"])
+app.include_router(field_sync.router, prefix="/api/field-sync", tags=["field sync"])
 app.include_router(profiles.router, prefix="/api/profiles", tags=["profiles"])
 app.include_router(locations.router, prefix="/api/locations", tags=["locations"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])

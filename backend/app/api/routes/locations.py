@@ -10,16 +10,18 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.routes.uploads import extract_exif_metadata
+from app.api.routes.uploads import extract_exif_metadata, normalize_image_source_type, validate_image_bytes
 from app.core.config import settings
 from app.core.utils import slugify
 from app.db.session import get_db
 from app.models import (
     AccessInquiry,
+    BoardLocation,
     ChallengeSubmission,
     ImageAsset,
     ImageMetadata,
     ImageRole,
+    ImageSourceType,
     LicenseInquiry,
     Location,
     LocationVisibility,
@@ -136,6 +138,8 @@ def write_location_bundle(location: Location, images: list[ImageAsset]) -> None:
             {
                 "id": image.id,
                 "image_role": image.image_role,
+                "image_source_type": image.image_source_type,
+                "source_note": image.source_note,
                 "title": image.title,
                 "caption": image.caption,
                 "storage_key": image.storage_key,
@@ -376,6 +380,8 @@ async def add_location_image(
     slug: str,
     file: UploadFile = File(...),
     image_role: str | None = Form(default=None),
+    image_source_type: str | None = Form(default=None),
+    source_note: str = Form(default=""),
     title: str = Form(...),
     caption: str = Form(default=""),
     licensing_available: bool = Form(default=False),
@@ -416,9 +422,12 @@ async def add_location_image(
         raise HTTPException(status_code=400, detail="File name is required")
 
     image_bytes = await file.read()
+    extension, mime_type = validate_image_bytes(image_bytes)
     exif_metadata = extract_exif_metadata(image_bytes)
-
-    extension = Path(file.filename).suffix.lower() or ".jpg"
+    normalized_source_type = normalize_image_source_type(image_source_type)
+    normalized_source_note = source_note.strip()
+    if normalized_source_type == ImageSourceType.royalty_free_reference.value and not normalized_source_note:
+        raise HTTPException(status_code=400, detail="Add a source or usage note for royalty-free reference images")
     storage_key = f"{uuid4().hex}{extension}"
     destination = Path(settings.upload_dir) / storage_key
     destination.write_bytes(image_bytes)
@@ -430,12 +439,14 @@ async def add_location_image(
         uploader_id=current_user.id,
         location=location,
         image_role=_normalize_image_role(image_role, ImageRole.location_photo),
+        image_source_type=normalized_source_type,
+        source_note=normalized_source_note,
         title=title,
         caption=caption,
         storage_key=storage_key,
         source_url=f"/uploads/{storage_key}",
-        mime_type=file.content_type or "image/jpeg",
-        licensing_available=licensing_available,
+        mime_type=mime_type,
+        licensing_available=licensing_available and normalized_source_type != ImageSourceType.royalty_free_reference.value,
         featured=featured,
     )
     metadata = _build_image_metadata(
@@ -607,6 +618,12 @@ def delete_location(
 
     for inquiry in list(location.access_inquiries):
         db.delete(inquiry)
+
+    for saved_location in list(location.saved_by):
+        db.delete(saved_location)
+
+    for board_entry in list(location.board_entries):
+        db.delete(board_entry)
 
     location.tags = []
     db.flush()

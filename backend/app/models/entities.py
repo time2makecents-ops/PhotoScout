@@ -39,6 +39,12 @@ class ImageRole(str, Enum):
     challenge_submission = "challenge_submission"
 
 
+class ImageSourceType(str, Enum):
+    original_raw = "original_raw"
+    original_edited = "original_edited"
+    royalty_free_reference = "royalty_free_reference"
+
+
 class InquiryStatus(str, Enum):
     open = "open"
     reviewed = "reviewed"
@@ -67,6 +73,11 @@ class User(Base):
     sessions: Mapped[list[AuthSession]] = relationship(back_populates="user", cascade="all, delete-orphan")
     locations: Mapped[list[Location]] = relationship(back_populates="creator")
     images: Mapped[list[ImageAsset]] = relationship(back_populates="uploader")
+    saved_locations: Mapped[list[SavedLocation]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    boards: Mapped[list[Board]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    field_devices: Mapped[list[FieldDevice]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    field_pairing_requests: Mapped[list[FieldPairingRequest]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    field_capture_receipts: Mapped[list[FieldCaptureReceipt]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Profile(Base):
@@ -108,6 +119,53 @@ class AuthSession(Base):
     user: Mapped[User] = relationship(back_populates="sessions")
 
 
+class FieldDevice(Base):
+    __tablename__ = "field_devices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    platform: Mapped[str] = mapped_column(String(30), default="unknown")
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="field_devices")
+    capture_receipts: Mapped[list[FieldCaptureReceipt]] = relationship(back_populates="device")
+
+
+class FieldPairingRequest(Base):
+    __tablename__ = "field_pairing_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    secret_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    api_base_url: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="field_pairing_requests")
+
+
+class FieldCaptureReceipt(Base):
+    __tablename__ = "field_capture_receipts"
+    __table_args__ = (UniqueConstraint("user_id", "client_capture_id", name="uq_field_capture_user_client"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("field_devices.id"), index=True)
+    client_capture_id: Mapped[str] = mapped_column(String(80), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), index=True)
+    image_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="field_capture_receipts")
+    device: Mapped[FieldDevice] = relationship(back_populates="capture_receipts")
+    location: Mapped[Location] = relationship()
+
+
 class Location(Base):
     __tablename__ = "locations"
 
@@ -134,6 +192,48 @@ class Location(Base):
     images: Mapped[list[ImageAsset]] = relationship(back_populates="location")
     tags: Mapped[list[Tag]] = relationship(secondary=location_tags, back_populates="locations")
     access_inquiries: Mapped[list[AccessInquiry]] = relationship(back_populates="location")
+    saved_by: Mapped[list[SavedLocation]] = relationship(back_populates="location", cascade="all, delete-orphan")
+    board_entries: Mapped[list[BoardLocation]] = relationship(back_populates="location", cascade="all, delete-orphan")
+
+
+class SavedLocation(Base):
+    __tablename__ = "saved_locations"
+    __table_args__ = (UniqueConstraint("user_id", "location_id", name="uq_saved_location_user_location"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="saved_locations")
+    location: Mapped[Location] = relationship(back_populates="saved_by")
+
+
+class Board(Base):
+    __tablename__ = "boards"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="boards")
+    location_entries: Mapped[list[BoardLocation]] = relationship(back_populates="board", cascade="all, delete-orphan")
+
+
+class BoardLocation(Base):
+    __tablename__ = "board_locations"
+    __table_args__ = (UniqueConstraint("board_id", "location_id", name="uq_board_location"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    board_id: Mapped[int] = mapped_column(ForeignKey("boards.id"), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    board: Mapped[Board] = relationship(back_populates="location_entries")
+    location: Mapped[Location] = relationship(back_populates="board_entries")
 
 
 class Tag(Base):
@@ -154,6 +254,8 @@ class ImageAsset(Base):
     uploader_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True, index=True)
     image_role: Mapped[str] = mapped_column(String(40), default=ImageRole.general.value)
+    image_source_type: Mapped[str] = mapped_column(String(40), default=ImageSourceType.original_edited.value)
+    source_note: Mapped[str] = mapped_column(Text, default="")
     title: Mapped[str] = mapped_column(String(160))
     caption: Mapped[str] = mapped_column(Text, default="")
     storage_key: Mapped[str] = mapped_column(String(255))

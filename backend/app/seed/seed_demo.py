@@ -5,7 +5,7 @@ from sqlalchemy import delete
 from app.core.security import hash_password
 from app.core.utils import slugify
 from app.db.session import SessionLocal, create_all
-from app.models import AccessInquiry, AuthSession, Challenge, ChallengeSubmission, ChallengeVote, HireInquiry, ImageAsset, ImageMetadata, LicenseInquiry, Location, Profile, ScoutService, Tag, User
+from app.models import AccessInquiry, AuthSession, Board, BoardLocation, Challenge, ChallengeSubmission, ChallengeVote, FieldCaptureReceipt, FieldDevice, FieldPairingRequest, HireInquiry, ImageAsset, ImageMetadata, LicenseInquiry, Location, Profile, SavedLocation, ScoutService, Tag, User
 from app.models.entities import location_tags
 
 
@@ -14,7 +14,7 @@ def seed() -> None:
     db = SessionLocal()
     try:
         db.execute(delete(location_tags))
-        for model in [ChallengeVote, ChallengeSubmission, Challenge, AccessInquiry, LicenseInquiry, HireInquiry, AuthSession, ImageMetadata, ImageAsset, Location, ScoutService, Profile, Tag, User]:
+        for model in [ChallengeVote, ChallengeSubmission, Challenge, AccessInquiry, LicenseInquiry, HireInquiry, BoardLocation, Board, SavedLocation, FieldCaptureReceipt, FieldDevice, FieldPairingRequest, AuthSession, ImageMetadata, ImageAsset, Location, ScoutService, Profile, Tag, User]:
             db.execute(delete(model))
         db.commit()
 

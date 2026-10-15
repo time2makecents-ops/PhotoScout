@@ -1,4 +1,4 @@
-import type { Challenge, ChallengeDetail, ImageAsset, Location, Profile, SearchResponse } from "./types";
+import type { Board, Challenge, ChallengeDetail, FieldDevice, FieldPairingRequest, ImageAsset, Location, Profile, SearchResponse } from "./types";
 import { normalizeErrorDetail } from "./errors";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8010";
@@ -41,6 +41,94 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function getLocations(): Promise<Location[]> {
   return request<Location[]>("/api/locations");
+}
+
+export async function getSavedLocations(token: string): Promise<Location[]> {
+  return request<Location[]>("/api/saved-locations", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export async function getSavedLocationState(locationId: number, token: string): Promise<boolean> {
+  const result = await request<{ saved: boolean }>(`/api/saved-locations/${locationId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  return result.saved;
+}
+
+export async function saveLocation(locationId: number, token: string): Promise<Location> {
+  return request<Location>(`/api/saved-locations/${locationId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function removeSavedLocation(locationId: number, token: string): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/saved-locations/${locationId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(normalizeErrorDetail(data.detail, `Request failed with status ${response.status}`));
+  }
+}
+
+export async function getBoards(token: string): Promise<Board[]> {
+  return request<Board[]>("/api/boards", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export async function createBoard(payload: { name: string; description?: string }, token: string): Promise<Board> {
+  return request<Board>("/api/boards", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteBoard(boardId: number, token: string): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/boards/${boardId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(normalizeErrorDetail(data.detail, `Request failed with status ${response.status}`));
+  }
+}
+
+export async function addLocationToBoard(boardId: number, locationId: number, token: string): Promise<Board> {
+  return request<Board>(`/api/boards/${boardId}/locations/${locationId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function removeLocationFromBoard(boardId: number, locationId: number, token: string): Promise<Board> {
+  return request<Board>(`/api/boards/${boardId}/locations/${locationId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getFieldDevices(token: string): Promise<FieldDevice[]> {
+  return request<FieldDevice[]>("/api/field-devices", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export async function createFieldPairingRequest(token: string): Promise<FieldPairingRequest> {
+  return request<FieldPairingRequest>("/api/field-devices/pairing-requests", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function revokeFieldDevice(deviceId: number, token: string): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/field-devices/${deviceId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(normalizeErrorDetail(data.detail, `Request failed with status ${response.status}`));
+  }
 }
 
 export async function getLocation(slug: string, token?: string): Promise<Location> {

@@ -9,12 +9,19 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import ImageAsset, ImageMetadata, ImageRole, User
+from app.models import ImageAsset, ImageMetadata, ImageRole, ImageSourceType, User
 from app.schemas.common import ImageRead
 from app.services.auth import get_current_user
 from app.services.serializers import image_to_read
 
 router = APIRouter()
+
+MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
+SUPPORTED_IMAGE_FORMATS = {
+    "JPEG": (".jpg", "image/jpeg"),
+    "PNG": (".png", "image/png"),
+    "WEBP": (".webp", "image/webp"),
+}
 
 
 def _normalize_image_role(value: str | None) -> str:
@@ -25,6 +32,35 @@ def _normalize_image_role(value: str | None) -> str:
     if normalized not in allowed_roles:
         raise HTTPException(status_code=400, detail="Invalid image role")
     return normalized
+
+
+def normalize_image_source_type(value: str | None) -> str:
+    if not value:
+        return ImageSourceType.original_edited.value
+    normalized = value.strip().lower()
+    allowed_types = {item.value for item in ImageSourceType}
+    if normalized not in allowed_types:
+        raise HTTPException(status_code=400, detail="Invalid image source type")
+    return normalized
+
+
+def validate_image_bytes(image_bytes: bytes) -> tuple[str, str]:
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Choose an image file before uploading")
+    if len(image_bytes) > MAX_IMAGE_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image files must be 10 MB or smaller")
+    try:
+        with PILImage.open(io.BytesIO(image_bytes)) as image:
+            image.verify()
+        with PILImage.open(io.BytesIO(image_bytes)) as image:
+            image_format = image.format
+            image.load()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="The selected file is not a readable image") from exc
+
+    if image_format not in SUPPORTED_IMAGE_FORMATS:
+        raise HTTPException(status_code=400, detail="Use a JPG, PNG, or WebP image")
+    return SUPPORTED_IMAGE_FORMATS[image_format]
 
 
 def _normalize_heading_source(value: str | None) -> str | None:
@@ -176,6 +212,8 @@ def extract_exif_metadata(image_bytes: bytes) -> dict[str, str | datetime | None
 async def upload_image(
     file: UploadFile = File(...),
     image_role: str | None = Form(default=None),
+    image_source_type: str | None = Form(default=None),
+    source_note: str = Form(default=""),
     title: str = Form(...),
     caption: str = Form(default=""),
     licensing_available: bool = Form(default=False),
@@ -211,9 +249,12 @@ async def upload_image(
         raise HTTPException(status_code=400, detail="File name is required")
 
     image_bytes = await file.read()
+    extension, mime_type = validate_image_bytes(image_bytes)
     exif_metadata = extract_exif_metadata(image_bytes)
-
-    extension = Path(file.filename).suffix.lower() or ".jpg"
+    normalized_source_type = normalize_image_source_type(image_source_type)
+    normalized_source_note = source_note.strip()
+    if normalized_source_type == ImageSourceType.royalty_free_reference.value and not normalized_source_note:
+        raise HTTPException(status_code=400, detail="Add a source or usage note for royalty-free reference images")
     storage_key = f"{uuid4().hex}{extension}"
     destination = Path(settings.upload_dir) / storage_key
     destination.write_bytes(image_bytes)
@@ -235,12 +276,14 @@ async def upload_image(
     image = ImageAsset(
         uploader_id=current_user.id,
         image_role=_normalize_image_role(image_role),
+        image_source_type=normalized_source_type,
+        source_note=normalized_source_note,
         title=title,
         caption=caption,
         storage_key=storage_key,
         source_url=f"/uploads/{storage_key}",
-        mime_type=file.content_type or "image/jpeg",
-        licensing_available=licensing_available,
+        mime_type=mime_type,
+        licensing_available=licensing_available and normalized_source_type != ImageSourceType.royalty_free_reference.value,
         featured=featured,
     )
     metadata = ImageMetadata(

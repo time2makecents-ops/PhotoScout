@@ -8,6 +8,7 @@ class Settings:
     session_ttl_hours: int = int(os.getenv("SESSION_TTL_HOURS", "168"))
     upload_dir: str = os.getenv("UPLOAD_DIR", "uploads")
     app_origin: str = os.getenv("APP_ORIGIN", "https://localhost:3003")
+    field_api_base_url: str = os.getenv("FIELD_API_BASE_URL", "http://127.0.0.1:8010")
 
     @property
     def cors_origins(self) -> list[str]:
@@ -20,7 +21,6 @@ class Settings:
             self.app_origin,
             "https://localhost:3003",
             "https://127.0.0.1:3003",
-            "https://172.16.0.44:3003",
         ]
         return list(dict.fromkeys([*configured_origins, *defaults]))
 

@@ -5,13 +5,16 @@ import { usePathname } from "next/navigation";
 import { PropsWithChildren } from "react";
 
 import { AccountButton } from "@/components/account-button";
+import { LocalSessionBootstrap } from "@/components/local-session-bootstrap";
 
 export function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const showChrome = pathname !== "/" && pathname !== "/login";
+  const isAddPinWorkspace = pathname === "/locations/new";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isAddPinWorkspace ? "app-shell-map-workspace" : ""}`}>
+      <LocalSessionBootstrap />
       {showChrome ? (
         <header className="topbar">
           <Link href="/home" className="brand">
@@ -24,6 +27,7 @@ export function AppShell({ children }: PropsWithChildren) {
           <nav className="top-links">
             <Link href="/home">Home</Link>
             <Link href="/search">Search</Link>
+            <Link href="/saved">Saved</Link>
             <Link href="/challenges">Challenges</Link>
             <Link href="/profile">Profile</Link>
           </nav>
@@ -32,14 +36,14 @@ export function AppShell({ children }: PropsWithChildren) {
           </div>
         </header>
       ) : null}
-      <main className="page">{children}</main>
-      {showChrome ? (
+      <main className={`page ${isAddPinWorkspace ? "page-map-workspace" : ""}`}>{children}</main>
+      {showChrome && !isAddPinWorkspace ? (
         <nav className="mobile-nav">
           <Link href="/home">Home</Link>
           <Link href="/search">Search</Link>
           <Link href="/locations/new">Add Pin</Link>
-          <Link href="/challenges">Challenges</Link>
-          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/saved">Saved</Link>
+          <Link href="/profile">Profile</Link>
         </nav>
       ) : null}
     </div>

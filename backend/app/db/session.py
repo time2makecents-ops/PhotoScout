@@ -45,6 +45,10 @@ def ensure_sqlite_compatibility() -> None:
             image_columns = _sqlite_columns(connection, "image_assets")
             if "image_role" not in image_columns:
                 connection.execute(text("ALTER TABLE image_assets ADD COLUMN image_role VARCHAR(40) NOT NULL DEFAULT 'general'"))
+            if "image_source_type" not in image_columns:
+                connection.execute(text("ALTER TABLE image_assets ADD COLUMN image_source_type VARCHAR(40) NOT NULL DEFAULT 'original_edited'"))
+            if "source_note" not in image_columns:
+                connection.execute(text("ALTER TABLE image_assets ADD COLUMN source_note TEXT NOT NULL DEFAULT ''"))
         if "image_metadata" in tables:
             metadata_columns = _sqlite_columns(connection, "image_metadata")
             if "gps_latitude" not in metadata_columns:

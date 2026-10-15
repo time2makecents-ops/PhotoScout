@@ -4,6 +4,7 @@ Thumbs.db
 .env.local
 .env.*.local
 *.log
+*.err
 *.sqlite3
 *.db
 *.pyc
@@ -17,5 +18,6 @@ node_modules/
 .next/
 dist/
 coverage/
+.runtime/
 backend/uploads/
 backend/.testdata/

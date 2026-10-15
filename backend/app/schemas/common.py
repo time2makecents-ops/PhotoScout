@@ -47,6 +47,8 @@ class ImageRead(BaseModel):
     id: int
     location_id: int | None = None
     image_role: str
+    image_source_type: str
+    source_note: str
     title: str
     caption: str
     source_url: str

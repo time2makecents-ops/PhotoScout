@@ -5,9 +5,11 @@ import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { PrivateLocationContact } from "@/components/private-location-contact";
+import { ImageSourceFields } from "@/components/image-source-fields";
 import { PhotoFileInputs } from "@/components/photo-file-inputs";
 import { PhotoMetadataFields } from "@/components/photo-metadata-fields";
 import { ShotConditionsCapture } from "@/components/shot-conditions-capture";
+import { SaveLocationButton } from "@/components/save-location-button";
 import {
   addImageToLocation,
   assetUrl,
@@ -37,6 +39,17 @@ function formatValue(value: string | number | null | undefined) {
     return null;
   }
   return String(value);
+}
+
+function imageSourceLabel(value: ImageAsset["image_source_type"]) {
+  switch (value) {
+    case "original_raw":
+      return "Original RAW capture";
+    case "royalty_free_reference":
+      return "Royalty-free reference";
+    default:
+      return "Original edited image";
+  }
 }
 
 function metadataItems(image: ImageAsset) {
@@ -89,10 +102,12 @@ export function LocationDetailClient({ initialLocation }: Props) {
   const [viewer, setViewer] = useState<CurrentUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [status, setStatus] = useState("");
+  const [photoStatus, setPhotoStatus] = useState("");
   const [addingPhoto, setAddingPhoto] = useState(false);
   const [deletingLocation, setDeletingLocation] = useState(false);
   const [deletingImageId, setDeletingImageId] = useState<number | null>(null);
   const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null);
+  const [selectedPhotoSourceType, setSelectedPhotoSourceType] = useState("original_edited");
   const [heroImageIndex, setHeroImageIndex] = useState(0);
 
   const canManage = Boolean(viewer && (viewer.role === "admin" || viewer.handle === location.creator_handle));
@@ -158,31 +173,35 @@ export function LocationDetailClient({ initialLocation }: Props) {
     event.preventDefault();
     const token = getStoredToken();
     if (!token) {
-      setStatus("Sign in to add photos to this pin.");
+      setPhotoStatus("Sign in to add photos to this pin.");
       return;
     }
     if (!canManage) {
-      setStatus("Only the owner or an admin can add photos to this pin.");
+      setPhotoStatus("Only the owner or an admin can add photos to this pin.");
       return;
     }
 
     setAddingPhoto(true);
     try {
       if (!selectedPhotoFile) {
-        setStatus("Take a photo or choose a photo first.");
+        setPhotoStatus("Choose a JPG, PNG, or WebP image first.");
         return;
       }
       const formData = new FormData(event.currentTarget);
       formData.set("file", selectedPhotoFile);
       formData.set("image_role", "location_photo");
+      if (!String(formData.get("title") || "").trim()) {
+        formData.set("title", `${location.name} photo`);
+      }
       const updated = await addImageToLocation(location.slug, formData, token);
       setLocation(updated);
       event.currentTarget.reset();
       setSelectedPhotoFile(null);
-      setStatus("Photo added to this pin.");
+      setSelectedPhotoSourceType("original_edited");
+      setPhotoStatus("Photo added to this pin.");
       router.refresh();
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : normalizeErrorDetail(undefined, "Unable to add photo."));
+      setPhotoStatus(error instanceof Error ? error.message : normalizeErrorDetail(undefined, "Unable to add photo."));
     } finally {
       setAddingPhoto(false);
     }
@@ -244,8 +263,13 @@ export function LocationDetailClient({ initialLocation }: Props) {
     <section className="section">
       <div className="panel-grid">
         <div className="panel">
-          <span className="eyebrow">{location.visibility} listing</span>
-          <h2>{location.name}</h2>
+          <div className="location-detail-title-row">
+            <div>
+              <span className="eyebrow">{location.visibility} listing</span>
+              <h2>{location.name}</h2>
+            </div>
+            <SaveLocationButton locationId={location.id} />
+          </div>
           {heroImage ? (
             <div className="map-thumbnail map-thumbnail-carousel profile-location-carousel" style={{ marginTop: "1rem" }}>
               <img className="cover" src={assetUrl(heroImage.source_url)} alt={heroImageTitle} />
@@ -323,9 +347,14 @@ export function LocationDetailClient({ initialLocation }: Props) {
           <p className="subtle">Upload another photo that belongs to this location and save its metadata with the pin.</p>
           <form className="form" onSubmit={onAddPhoto}>
             <PhotoFileInputs idPrefix="pin-detail-photo" selectedFile={selectedPhotoFile} onSelect={setSelectedPhotoFile} />
+            <ImageSourceFields
+              idPrefix="pin-detail-photo"
+              sourceType={selectedPhotoSourceType}
+              onSourceTypeChange={setSelectedPhotoSourceType}
+            />
             <div className="field">
-              <label htmlFor="location-photo-title">Image title</label>
-              <input id="location-photo-title" name="title" required />
+              <label htmlFor="location-photo-title">Image title (optional)</label>
+              <input id="location-photo-title" name="title" placeholder={`${location.name} photo`} />
             </div>
             <div className="field">
               <label htmlFor="location-photo-caption">Caption</label>
@@ -336,11 +365,16 @@ export function LocationDetailClient({ initialLocation }: Props) {
                 <input type="checkbox" name="featured" /> Featured on pin
               </label>
             </div>
-            <ShotConditionsCapture idPrefix="pin-detail-photo" selectedFile={selectedPhotoFile} />
-            <PhotoMetadataFields prefix="location-photo" showCameraDirection={false} />
+            {selectedPhotoSourceType !== "royalty_free_reference" ? (
+              <>
+                <ShotConditionsCapture idPrefix="pin-detail-photo" selectedFile={selectedPhotoFile} />
+                <PhotoMetadataFields prefix="location-photo" showCameraDirection={false} />
+              </>
+            ) : null}
             <button type="submit" disabled={addingPhoto}>
               {addingPhoto ? "Uploading..." : "Add photo"}
             </button>
+            {photoStatus ? <p className="status" role="status">{photoStatus}</p> : null}
           </form>
         </div>
       ) : authReady && viewer ? (
@@ -360,7 +394,9 @@ export function LocationDetailClient({ initialLocation }: Props) {
                 <div className="pill-row">
                   {image.featured ? <span className="pill">Featured</span> : null}
                   {image.licensing_available ? <span className="pill">Licensing available</span> : null}
+                  <span className="pill">{imageSourceLabel(image.image_source_type)}</span>
                 </div>
+                {image.source_note ? <p className="subtle">Source note: {image.source_note}</p> : null}
                 <div className="pill-row">
                   {metadataItems(image).map(([label, value]) => (
                     <span key={`${image.id}-${label}`} className="pill" title={label ?? undefined}>

@@ -33,6 +33,34 @@
 - `created_at`
 - `expires_at`
 
+### FieldDevice
+- `id`
+- `user_id`
+- `name`
+- `platform`
+- `token_hash`
+- `created_at`
+- `last_seen_at`
+- `revoked_at`
+
+### FieldPairingRequest
+- `id`
+- `user_id`
+- `secret_hash`
+- `api_base_url`
+- `created_at`
+- `expires_at`
+- `used_at`
+
+### FieldCaptureReceipt
+- `id`
+- `user_id`
+- `device_id`
+- `client_capture_id`
+- `location_id`
+- `image_count`
+- `created_at`
+
 ### Location
 - `id`
 - `creator_id`
@@ -60,6 +88,26 @@
 ### LocationTag
 - `location_id`
 - `tag_id`
+
+### SavedLocation
+- `id`
+- `user_id`
+- `location_id`
+- `created_at`
+
+### Board
+- `id`
+- `user_id`
+- `name`
+- `description`
+- `created_at`
+- `updated_at`
+
+### BoardLocation
+- `id`
+- `board_id`
+- `location_id`
+- `created_at`
 
 ### ImageAsset
 - `id`
@@ -167,6 +215,11 @@
 - One `User` has one `Profile`
 - One `User` can upload many `ImageAsset` records
 - One `User` can create many `Location` records
+- One `User` can save many unique `Location` records
+- One `User` can create many `Board` records
+- One `User` can pair many revocable `FieldDevice` records
+- One field capture creates one unique `FieldCaptureReceipt` per user and points to the resulting `Location`
+- One `Board` can group many saved locations through `BoardLocation`
 - One `Location` has many `ImageAsset` records
 - One `ImageAsset` has one `ImageMetadata`
 - One `Profile` can have many `ScoutService` rows
@@ -191,4 +244,3 @@ Future ranking inputs reserved by schema:
 - `is_featured`
 - `created_at`
 - contributor profile signals
-

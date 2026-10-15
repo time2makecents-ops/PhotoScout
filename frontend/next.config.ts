@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
+const lanHost = process.env.PHOTOSCOUT_LAN_HOST?.trim();
+
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["172.16.0.44"],
+  allowedDevOrigins: lanHost ? [lanHost] : [],
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "picsum.photos" },

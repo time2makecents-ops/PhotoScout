@@ -89,8 +89,8 @@ export function AccountButton() {
 
   if (!mounted || !token) {
     return (
-      <Link href="/login" className="account-button account-button-link">
-        Log in
+      <Link href="/profile" className="account-button account-button-link">
+        Profile
       </Link>
     );
   }

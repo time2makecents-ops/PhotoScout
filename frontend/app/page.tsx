@@ -1,5 +1,5 @@
-import { LoginScreen } from "@/components/login-screen";
+import { redirect } from "next/navigation";
 
 export default function RootPage() {
-  return <LoginScreen />;
+  redirect("/home");
 }
